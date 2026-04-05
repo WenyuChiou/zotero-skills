@@ -1,69 +1,232 @@
+﻿---
+name: zotero-skills
+description: Full CRUD operations on Zotero library — search, add, update, delete items with notes, tags, collections, and PDF attachments. Uses dual-API architecture (local API for fast reads, Web API for writes). Use when needing to read or write items to Zotero.
 ---
-name: zotero-write
-description: Add literature to Zotero library with notes, tags, and PDF attachments. Use when needing to write items to Zotero (MCP only supports read).
+
+# Zotero Library Management Skill — Full CRUD Reference
+
+Complete workflow for managing Zotero references: search, add, classify, annotate, update, delete, and organize.
+
+## Dual-API Architecture
+
+This skill uses two API surfaces depending on the operation:
+
+| API | Base URL | Auth | Capabilities |
+|-----|----------|------|-------------|
+| **Local API** | `http://localhost:23119/api` | Header: `Zotero-Allowed-Request: true` | **Read-only** (GET) |
+| **Web API** | `https://api.zotero.org` | Header: `Zotero-API-Key: <key>` | **Full CRUD** (GET/POST/PATCH/DELETE) |
+
+**User ID:** `14772686`
+**Library Type:** `user`
+
+### Critical Architecture Decision
+- The Zotero local API (port 23119) **does NOT support write operations**.
+  - POST → returns `400 Endpoint does not support method`
+  - PATCH → returns `501 Method not implemented`
+  - DELETE → returns `501 Method not implemented`
+- All write/update/delete operations MUST go through the **Web API** with an API key.
+- The existing Zotero MCP connector (`zotero_*` tools) is configured with `ZOTERO_LOCAL=true`,
+  so its write tools (`zotero_create_note`, `zotero_batch_update_tags`) **will fail**.
+- **Hybrid approach:** Keep `ZOTERO_LOCAL=true` for fast reads via MCP, and use pyzotero / direct Web API calls for write operations.
+
 ---
 
-# Zotero Library Management Skill
+## 1. Setup
 
-Complete workflow for managing Zotero references: search, add, classify, annotate, and organize.
-
-## Setup
-
-### 1. Zotero MCP Server (Read Operations)
+### 1.1 Zotero MCP Server (Read Operations)
 
 Install and configure a Zotero MCP server for read operations (`zotero_search_items`, `zotero_get_collections`, etc.). Add it to your `.mcp.json` or MCP settings.
 
-### 2. pyzotero (Write Operations)
+### 1.2 pyzotero (Write Operations)
 
 ```bash
 pip install pyzotero
 ```
 
-### 3. API Credentials
+### 1.3 API Credentials (Centralized)
 
-1. Go to **https://www.zotero.org/settings/keys** and create a new API key
-2. Grant the key **read/write** access to your personal library (and any groups you need)
-3. Note your **User ID** from the same settings page
-4. Set environment variables (or configure them in `.mcp.json`):
+Credentials and collection keys are stored in `~/.claude/skills/zotero-skills/config.json`. This is the **single source of truth** — no more hardcoding in scripts.
 
-```bash
-export ZOTERO_API_KEY="your-api-key-here"
-export ZOTERO_LIBRARY_ID="your-user-id"
+```json
+// ~/.claude/skills/zotero-skills/config.json
+{
+  "zotero_api_key": "hLGhkxO20sXiKpMF62mGDeG2",
+  "zotero_library_id": "14772686",
+  "zotero_library_type": "user",
+  "collections": {
+    "parent": "MDMG47ZS",
+    "paper1b_nature_water": "UM8N5CRU",
+    "paper3_wrr": "XZ22GHJA",
+    "wrr_intro": "4KDW9UZ9",
+    "wrr_comparable": "4BJS58TX",
+    "pmt_behavior": "6AFGP7RT",
+    "bounded_rationality": "QD723EMF",
+    "flood_adaptation": "AQP8NC4V",
+    "flood_insurance": "YSSPJU2R"
+  }
+}
 ```
 
-## Prerequisites
+### 1.4 Getting a Zotero API Key
+1. Go to https://www.zotero.org/settings/keys
+2. Click "Create new private key"
+3. Grant permissions: Library Read/Write, Notes Read/Write, Allow write access
+4. Save and copy the key
+
+### 1.5 Required Headers
+
+**Local API (reads only):**
+```
+Zotero-Allowed-Request: true
+Zotero-API-Version: 3
+```
+
+**Web API (full CRUD):**
+```
+Zotero-API-Key: <your_key>
+Zotero-API-Version: 3
+Content-Type: application/json
+```
+
+---
+
+## 2. Prerequisites — Use the Shared Client
 
 ```python
-import os, sys
+import sys
+sys.path.insert(0, r"C:\Users\wenyu\.claude\skills\zotero-skills\scripts")
+from zotero_client import get_client, get_collection, add_note, check_duplicate
 
-# Windows encoding fix
-sys.stdout.reconfigure(encoding='utf-8')
-
-from pyzotero import zotero
-
-ZOTERO_API_KEY = os.environ.get("ZOTERO_API_KEY")
-ZOTERO_LIBRARY_ID = os.environ.get("ZOTERO_LIBRARY_ID")
-
-if not ZOTERO_API_KEY or not ZOTERO_LIBRARY_ID:
-    raise ValueError(
-        "Missing Zotero credentials. Set environment variables:\n"
-        "  ZOTERO_API_KEY=<your key from https://www.zotero.org/settings/keys>\n"
-        "  ZOTERO_LIBRARY_ID=<your user ID>"
-    )
-
-zot = zotero.Zotero(ZOTERO_LIBRARY_ID, "user", ZOTERO_API_KEY)
+zot = get_client()  # Reads from config.json automatically
+collection_key = get_collection("paper3_wrr")  # Lookup by short name
 ```
 
-## Architecture
+The shared client (`scripts/zotero_client.py`) handles:
+- Credential loading from `config.json` (falls back to env vars)
+- `get_client()` — authenticated Zotero Web API instance
+- `get_collection(name)` — lookup collection key by short name
+- `add_note(zot, item_key, html)` — add structured note
+- `check_duplicate(zot, title, doi)` — prevent duplicate entries
+- `ZoteroDualClient` — advanced class using local API for reads + Web API for writes
 
-- **Read** (MCP tools): `zotero_search_items`, `zotero_get_item_metadata`, `zotero_get_collections`, etc.
-- **Write** (`pyzotero`): Create items, add notes, assign collections, upload PDFs
+---
 
-## Workflow: Adding Literature
+## 3. READ Operations (Local API — Fast, No Key Required)
+
+All GET requests go to `http://localhost:23119/api/users/14772686/...`
+with header `Zotero-Allowed-Request: true`.
+
+### 3.1 List Items
+
+```powershell
+# Get top-level items (default: JSON format)
+$h = @{ "Zotero-Allowed-Request" = "true"; "Zotero-API-Version" = "3" }
+$r = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items/top?limit=25&format=json" -Headers $h
+
+# Get item keys only (lightweight)
+$r = Invoke-WebRequest -Uri "http://localhost:23119/api/users/14772686/items?limit=50&format=keys" -Headers $h
+```
+
+```bash
+# curl equivalent
+curl -s -H "Zotero-Allowed-Request: true" \
+  "http://localhost:23119/api/users/14772686/items/top?limit=25&format=json"
+```
+
+**Query Parameters:**
+| Param | Description | Example |
+|-------|------------|---------|
+| `limit` | Max items (default 25, max 100) | `limit=50` |
+| `start` | Offset for pagination | `start=25` |
+| `sort` | Sort field | `sort=dateModified` |
+| `direction` | Sort direction | `direction=desc` |
+| `format` | Response format | `format=json`, `format=keys`, `format=bibtex` |
+| `q` | Quick search query | `q=flood adaptation` |
+| `qmode` | Search mode | `qmode=titleCreatorYear` or `qmode=everything` |
+| `tag` | Filter by tag | `tag=ABM` |
+| `itemType` | Filter by type | `itemType=journalArticle` |
+| `since` | Items modified since version | `since=1000` |
+
+### 3.2 Get Single Item
+
+```powershell
+$h = @{ "Zotero-Allowed-Request" = "true" }
+$item = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items/I3P2J58S" -Headers $h
+$item.data.title  # "Long-term household flood adaptation..."
+$item.data.DOI    # "10.5194/egusphere-egu26-12778"
+$item.data.tags   # Array of {tag, type} objects
+```
+
+### 3.3 Get Item Children (notes, attachments)
+
+```powershell
+$children = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items/I3P2J58S/children" -Headers $h
+```
+
+### 3.4 List Collections
+
+```powershell
+$collections = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/collections?format=json" -Headers $h
+# Each collection has: key, data.name, data.parentCollection, meta.numItems
+```
+
+### 3.5 Get Collection Items
+
+```powershell
+$items = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/collections/GH5CN2ZZ/items?format=json" -Headers $h
+```
+
+### 3.6 List Tags
+
+```powershell
+$tags = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/tags" -Headers $h
+```
+
+### 3.7 Search Items
+
+```powershell
+# Search by title/creator/year
+$results = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items?q=agent-based+model&qmode=titleCreatorYear&limit=10&format=json" -Headers $h
+
+# Search everything (including full-text)
+$results = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items?q=flood+insurance&qmode=everything&limit=10&format=json" -Headers $h
+
+# Filter by tag
+$results = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items?tag=ABM&format=json" -Headers $h
+
+# Filter by item type
+$results = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items?itemType=journalArticle&format=json" -Headers $h
+
+# Multiple tags (AND logic - use multiple tag params)
+$results = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items?tag=ABM&tag=flood-adaptation&format=json" -Headers $h
+
+# Exclude tag (prefix with -)
+$results = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items?tag=-TO-DELETE&format=json" -Headers $h
+```
+
+### 3.8 Get Trash Items
+
+```powershell
+$trash = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items/trash?format=json" -Headers $h
+```
+
+### 3.9 Get Saved Searches
+
+```powershell
+$searches = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/searches" -Headers $h
+```
+
+---
+
+## 4. CREATE Operations (Web API — Requires API Key)
+
+All POST requests go to `https://api.zotero.org/users/14772686/...`
+
+### Workflow: Adding Literature
 
 Always follow this sequence:
 
-### Step 1: Check for Duplicates (MCP or pyzotero)
+#### Step 1: Check for Duplicates (MCP or pyzotero)
 
 Before adding ANY item, search Zotero to avoid duplicates:
 
@@ -90,7 +253,7 @@ is_duplicate = any(
 
 If found, skip creation. If the existing item needs updates (notes, collections, tags), go to Step 5.
 
-### Step 2: Create Item
+#### Step 2: Create Item
 
 ```python
 template = zot.item_template("journalArticle")  # See Item Types below
@@ -107,7 +270,37 @@ response = zot.create_items([template])
 item_key = list(response["successful"].values())[0]["key"]
 ```
 
-### Step 3: Add Note (MANDATORY)
+**PowerShell equivalent (direct Web API):**
+
+```powershell
+$key = "hLGhkxO20sXiKpMF62mGDeG2"
+$h = @{
+    "Zotero-API-Key" = $key
+    "Zotero-API-Version" = "3"
+    "Content-Type" = "application/json"
+}
+$body = @'
+[{
+  "itemType": "journalArticle",
+  "title": "Paper Title",
+  "creators": [
+    {"creatorType": "author", "firstName": "Jane", "lastName": "Doe"}
+  ],
+  "publicationTitle": "Journal Name",
+  "date": "2024",
+  "DOI": "10.xxxx/xxxxx",
+  "tags": [{"tag": "ABM"}],
+  "collections": ["YOUR_COLLECTION_KEY"],
+  "relations": {}
+}]
+'@
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+$r = Invoke-WebRequest -Uri "https://api.zotero.org/users/14772686/items" -Method POST -Headers $h -Body $bytes
+$result = $r.Content | ConvertFrom-Json
+$newKey = $result.success.'0'
+```
+
+#### Step 3: Add Note (MANDATORY)
 
 Every item MUST have a structured note. Use the appropriate template:
 
@@ -125,7 +318,22 @@ note_html = """
 add_note(zot, item_key, note_html)
 ```
 
-### Step 4: Upload PDF (Optional)
+**PowerShell equivalent (child note via Web API):**
+
+```powershell
+$body = @'
+[{
+  "itemType": "note",
+  "parentItem": "ITEM_KEY_HERE",
+  "note": "<h1>Reading Notes</h1><p>Key findings...</p>",
+  "tags": [{"tag": "reading-notes"}]
+}]
+'@
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+$r = Invoke-WebRequest -Uri "https://api.zotero.org/users/14772686/items" -Method POST -Headers $h -Body $bytes
+```
+
+#### Step 4: Upload PDF (Optional)
 
 ```python
 from pathlib import Path
@@ -133,22 +341,231 @@ pdf_path = Path("path/to/paper.pdf")
 zot.attachment_simple([str(pdf_path)], item_key)
 ```
 
-### Step 5: Update Existing Item
+### 4.1 Create a Standalone Note
 
-```python
-# Add to new collection
-item = zot.item("EXISTING_KEY")
-cols = item["data"].get("collections", [])
-if "NEW_COLLECTION_KEY" not in cols:
-    cols.append("NEW_COLLECTION_KEY")
-    item["data"]["collections"] = cols
-    zot.update_item(item)
-
-# Add additional note
-add_note(zot, "EXISTING_KEY", "<p><b>Update:</b> Also cited in Section X.Y.</p>")
+```json
+[{
+  "itemType": "note",
+  "note": "<h1>Research Planning</h1><p>Next steps for the ABM flood project...</p>",
+  "tags": [{"tag": "planning"}],
+  "collections": ["GH5CN2ZZ"]
+}]
 ```
 
-## Item Types
+### 4.2 Create a Collection
+
+```powershell
+$body = '[{"name": "Flood Insurance Literature", "parentCollection": false}]'
+$r = Invoke-WebRequest -Uri "https://api.zotero.org/users/14772686/collections" `
+  -Method POST -Headers $h -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+$result = ($r.Content | ConvertFrom-Json)
+$newCollKey = $result.success.'0'
+```
+
+```python
+# Python — create sub-collection
+result = zot.create_collections([{
+    "name": "Flood Insurance Literature",
+    "parentCollection": "MDMG47ZS"
+}])
+col_key = list(result["successful"].values())[0]["key"]
+```
+
+### 4.3 Batch Create (Multiple Items at Once)
+
+The API accepts up to **50 items per POST request**.
+
+```python
+items = []
+for paper in papers_to_add:
+    t = zot.item_template("journalArticle")
+    t["title"] = paper["title"]
+    t["DOI"] = paper["doi"]
+    t["creators"] = [{"creatorType": "author", "firstName": a.split()[0], "lastName": a.split()[-1]} for a in paper["authors"]]
+    t["tags"] = [{"tag": tag} for tag in paper["tags"]]
+    t["collections"] = [paper.get("collection_key", "")]
+    items.append(t)
+
+# Split into batches of 50
+for i in range(0, len(items), 50):
+    batch = items[i:i+50]
+    result = zot.create_items(batch)
+    print(f"Batch {i//50 + 1}: {len(result.get('success', {}))} created, {len(result.get('failed', {}))} failed")
+```
+
+---
+
+## 5. UPDATE Operations (Web API — Requires API Key)
+
+### 5.1 Update Item Metadata
+
+Updates use PATCH with the `If-Unmodified-Since-Version` header for optimistic locking.
+
+```python
+# Python — update item
+item = zot.item("I3P2J58S")
+item["data"]["title"] = "Updated Title Here"
+item["data"]["date"] = "2026-04"
+zot.update_item(item["data"])
+```
+
+```powershell
+# PowerShell — Step 1: Get current version
+$h_read = @{ "Zotero-Allowed-Request" = "true" }
+$item = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items/I3P2J58S" -Headers $h_read
+$version = $item.version
+
+# Step 2: PATCH via Web API
+$h_write = @{
+    "Zotero-API-Key" = $key
+    "Zotero-API-Version" = "3"
+    "Content-Type" = "application/json"
+    "If-Unmodified-Since-Version" = "$version"
+}
+$patch = @{ title = "Updated Title Here"; date = "2026-04" } | ConvertTo-Json
+$r = Invoke-WebRequest -Uri "https://api.zotero.org/users/14772686/items/I3P2J58S" `
+  -Method PATCH -Headers $h_write -Body ([System.Text.Encoding]::UTF8.GetBytes($patch))
+```
+
+### 5.2 Update Tags on an Item
+
+```python
+item = zot.item("I3P2J58S")
+# Add new tags while preserving existing ones
+existing_tags = item["data"]["tags"]
+new_tags = existing_tags + [{"tag": "new-category"}, {"tag": "reviewed"}]
+item["data"]["tags"] = new_tags
+zot.update_item(item["data"])
+
+# Remove a specific tag
+item["data"]["tags"] = [t for t in item["data"]["tags"] if t["tag"] != "TO-DELETE"]
+zot.update_item(item["data"])
+```
+
+### 5.3 Move Item to / Remove from Collection
+
+```python
+# Add to collection
+item = zot.item("I3P2J58S")
+if "YSSPJU2R" not in item["data"]["collections"]:
+    item["data"]["collections"].append("YSSPJU2R")
+    zot.update_item(item["data"])
+
+# Remove from collection
+item["data"]["collections"] = [c for c in item["data"]["collections"] if c != "YSSPJU2R"]
+zot.update_item(item["data"])
+```
+
+### 5.4 Update Note Content
+
+```python
+note = zot.item("NOTE_KEY")
+note["data"]["note"] = "<h1>Updated Notes</h1><p>Revised analysis after re-reading...</p>"
+zot.update_item(note["data"])
+```
+
+### 5.5 Update Collection Name
+
+```python
+collection = zot.collection("GH5CN2ZZ")
+collection["data"]["name"] = "ABM — Agent-Based Models"
+zot.update_collection(collection["data"])
+```
+
+### 5.6 Batch Update Items
+
+```python
+# Update multiple items at once (max 50 per call)
+items_to_update = []
+for key in ["KEY1", "KEY2", "KEY3"]:
+    item = zot.item(key)
+    item["data"]["tags"].append({"tag": "batch-processed"})
+    items_to_update.append(item["data"])
+
+zot.update_items(items_to_update)
+```
+
+---
+
+## 6. DELETE Operations (Web API — Requires API Key)
+
+### CRITICAL: Deletion Strategy
+
+The Zotero local API does NOT support DELETE (returns 501).
+All deletion must go through the Web API.
+
+**Two-stage deletion:**
+1. **Move to Trash** — item remains recoverable for 30 days
+2. **Permanent Delete** — item is gone forever (use with extreme caution)
+
+### 6.1 Move Single Item to Trash
+
+```python
+# Python — move to trash
+item = zot.item("ITEM_KEY")
+zot.delete_item(item)  # Moves to trash by default
+```
+
+```powershell
+# PowerShell — get version first, then DELETE via Web API
+$h_read = @{ "Zotero-Allowed-Request" = "true" }
+$item = Invoke-RestMethod -Uri "http://localhost:23119/api/users/14772686/items/ITEM_KEY" -Headers $h_read
+$version = $item.version
+
+$h_del = @{
+    "Zotero-API-Key" = $key
+    "Zotero-API-Version" = "3"
+    "If-Unmodified-Since-Version" = "$version"
+}
+$r = Invoke-WebRequest -Uri "https://api.zotero.org/users/14772686/items/ITEM_KEY" `
+  -Method DELETE -Headers $h_del
+# Returns 204 No Content on success
+```
+
+### 6.2 Batch Delete Multiple Items
+
+```powershell
+# Delete up to 50 items at once using itemKey parameter
+$keys = "KEY1,KEY2,KEY3"
+$r = Invoke-WebRequest -Uri "https://api.zotero.org/users/14772686/items?itemKey=$keys" `
+  -Method DELETE -Headers $h_del
+```
+
+```python
+# Python — batch delete
+items = zot.items(tag="TO-DELETE", limit=50)
+if items:
+    zot.delete_item(items)  # Accepts list of item dicts
+```
+
+### 6.3 Delete a Collection
+
+```python
+collection = zot.collection("COLLECTION_KEY")
+zot.delete_collection(collection)
+# Note: This deletes the collection only, NOT the items in it
+```
+
+### 6.4 Delete a Note
+
+```python
+note = zot.item("NOTE_KEY")
+zot.delete_item(note)
+```
+
+### 6.5 Permanently Delete from Trash
+
+There is no direct API endpoint for permanent deletion from trash.
+Items in trash are automatically purged after 30 days.
+To permanently delete immediately, use Zotero's desktop UI:
+1. Go to Trash in Zotero
+2. Right-click → "Delete Item(s) Permanently..."
+
+---
+
+## 7. Item Types & JSON Templates
+
+### Item Type Reference
 
 | Type | Template Name | When to Use |
 |------|--------------|-------------|
@@ -161,35 +578,120 @@ add_note(zot, "EXISTING_KEY", "<p><b>Update:</b> Also cited in Section X.Y.</p>"
 | Report | `report` | Technical reports, government docs |
 | Webpage | `webpage` | Online resources |
 
-### Conference Paper Template
+### 7.1 Journal Article (Full Template)
 
-```python
-template = zot.item_template("conferencePaper")
-template["title"] = "Paper Title"
-template["creators"] = [{"creatorType": "author", "firstName": "F", "lastName": "L"}]
-template["conferenceName"] = "Conference Name 2024"
-template["proceedingsTitle"] = "Proceedings of Conference"
-template["date"] = "2024"
-template["DOI"] = "10.xxxx/xxxxx"
-template["pages"] = "1-10"
-template["collections"] = ["YOUR_COLLECTION_KEY"]
+```json
+{
+  "itemType": "journalArticle",
+  "title": "",
+  "creators": [
+    {"creatorType": "author", "firstName": "", "lastName": ""}
+  ],
+  "abstractNote": "",
+  "publicationTitle": "",
+  "volume": "",
+  "issue": "",
+  "pages": "",
+  "date": "",
+  "series": "",
+  "seriesTitle": "",
+  "journalAbbreviation": "",
+  "language": "en",
+  "DOI": "",
+  "ISSN": "",
+  "shortTitle": "",
+  "url": "",
+  "accessDate": "",
+  "extra": "",
+  "tags": [],
+  "collections": [],
+  "relations": {}
+}
 ```
 
-### Book Template
+### 7.2 Conference Paper
 
-```python
-template = zot.item_template("book")
-template["title"] = "Book Title"
-template["creators"] = [{"creatorType": "author", "firstName": "F", "lastName": "L"}]
-template["publisher"] = "Publisher Name"
-template["place"] = "City"
-template["date"] = "2024"
-template["ISBN"] = "978-xxx"
-template["numPages"] = "350"
-template["collections"] = ["YOUR_COLLECTION_KEY"]
+```json
+{
+  "itemType": "conferencePaper",
+  "title": "",
+  "creators": [
+    {"creatorType": "author", "firstName": "", "lastName": ""}
+  ],
+  "abstractNote": "",
+  "date": "",
+  "proceedingsTitle": "",
+  "conferenceName": "",
+  "place": "",
+  "publisher": "",
+  "volume": "",
+  "pages": "",
+  "series": "",
+  "language": "en",
+  "DOI": "",
+  "ISBN": "",
+  "url": "",
+  "tags": [],
+  "collections": [],
+  "relations": {}
+}
 ```
 
-### Report Template
+### 7.3 Book
+
+```json
+{
+  "itemType": "book",
+  "title": "",
+  "creators": [
+    {"creatorType": "author", "firstName": "", "lastName": ""}
+  ],
+  "abstractNote": "",
+  "series": "",
+  "volume": "",
+  "edition": "",
+  "place": "",
+  "publisher": "",
+  "date": "",
+  "numPages": "",
+  "language": "en",
+  "ISBN": "",
+  "url": "",
+  "tags": [],
+  "collections": [],
+  "relations": {}
+}
+```
+
+### 7.4 Book Section
+
+```json
+{
+  "itemType": "bookSection",
+  "title": "",
+  "creators": [
+    {"creatorType": "author", "firstName": "", "lastName": ""},
+    {"creatorType": "editor", "firstName": "", "lastName": ""}
+  ],
+  "abstractNote": "",
+  "bookTitle": "",
+  "series": "",
+  "volume": "",
+  "edition": "",
+  "place": "",
+  "publisher": "",
+  "date": "",
+  "pages": "",
+  "language": "en",
+  "ISBN": "",
+  "url": "",
+  "tags": [],
+  "collections": [],
+  "relations": {}
+}
+```
+
+### 7.5 Report
 
 ```python
 template = zot.item_template("report")
@@ -202,41 +704,73 @@ template["url"] = "https://example.org/report"
 template["collections"] = ["YOUR_COLLECTION_KEY"]
 ```
 
-## Classification Guide
+### 7.6 Note (Standalone or Child)
+
+```json
+{
+  "itemType": "note",
+  "parentItem": "",
+  "note": "<p>Note content with <strong>HTML formatting</strong></p>",
+  "tags": [{"tag": "note-tag"}],
+  "collections": [],
+  "relations": {}
+}
+```
+
+*Omit `parentItem` or set to `""` for standalone notes.*
+*Set `parentItem` to a valid item key (e.g., `"I3P2J58S"`) for child notes.*
+
+### 7.7 Collection
+
+```json
+{
+  "name": "Collection Name",
+  "parentCollection": false
+}
+```
+
+*Set `parentCollection` to a collection key for sub-collections, or `false` for top-level.*
+
+### Creator Types by Item Type
+- **journalArticle**: `author`, `contributor`, `editor`, `translator`, `reviewedAuthor`
+- **conferencePaper**: `author`, `contributor`, `editor`, `translator`, `seriesEditor`
+- **book**: `author`, `contributor`, `editor`, `translator`, `seriesEditor`
+- **bookSection**: `author`, `contributor`, `editor`, `translator`, `bookAuthor`, `seriesEditor`
+- **thesis**: `author`, `contributor`
+- **report**: `author`, `contributor`, `translator`, `seriesEditor`
+
+---
+
+## 8. Classification Guide
 
 ### Collection Hierarchy
 
-Organize your Zotero collections to mirror your project structure. Example:
+Organize your Zotero collections to mirror your project structure:
 
 ```
-XXXXXXXX  My-Research-Project/
-  XXXXXXXX    01-Theory/
-    XXXXXXXX      Sub-Topic-A
-    XXXXXXXX      Sub-Topic-B
-  XXXXXXXX    02-Methods/
-    XXXXXXXX      Quantitative
-    XXXXXXXX      Qualitative
-  XXXXXXXX    03-Applications/
-    XXXXXXXX      Domain-A
-    XXXXXXXX      Domain-B
-  XXXXXXXX    04-Background/
-    XXXXXXXX      Related-Work
+MDMG47ZS  Parent/
+  XZ22GHJA    paper3_wrr/
+    4KDW9UZ9      wrr_intro
+    4BJS58TX      wrr_comparable
+  UM8N5CRU    paper1b_nature_water/
+  6AFGP7RT    pmt_behavior
+  QD723EMF    bounded_rationality
+  AQP8NC4V    flood_adaptation
+  YSSPJU2R    flood_insurance
 ```
 
-> **Tip:** Find your collection keys via MCP (`zotero_get_collections`) or in the Zotero web UI URL.
+> **Tip:** Find your collection keys via MCP (`zotero_get_collections`) or in the Zotero web UI URL. Update `config.json` when adding new collections.
 
 ### Auto-Classification Rules
 
 Assign to a **primary** collection always; add **secondary** if a paper spans topics.
 
-Customize this table for your project:
-
 | Keywords in title/abstract | Primary Collection | Key |
 |---|---|---|
-| keyword-a, keyword-b | Sub-Topic-A | `YOUR_KEY` |
-| keyword-c, keyword-d | Sub-Topic-B | `YOUR_KEY` |
-| keyword-e, keyword-f | Quantitative | `YOUR_KEY` |
-| keyword-g, keyword-h | Domain-A | `YOUR_KEY` |
+| flood adaptation, household adaptation | flood_adaptation | `AQP8NC4V` |
+| flood insurance, NFIP, premium | flood_insurance | `YSSPJU2R` |
+| PMT, protection motivation | pmt_behavior | `6AFGP7RT` |
+| bounded rationality, heuristic | bounded_rationality | `QD723EMF` |
 
 ### Classification Priority
 
@@ -249,23 +783,9 @@ When multiple categories match, assign primary by priority (highest first):
 
 All others become secondary collections.
 
-### Creating New Collections
+---
 
-If no existing collection fits:
-
-```python
-new_col = {
-    "name": "New-Sub-Collection",
-    "parentCollection": "PARENT_KEY",
-}
-result = zot.create_collections([new_col])
-col_key = list(result["successful"].values())[0]["key"]
-print(f"Created collection: {col_key}")
-```
-
-Then update this SKILL.md to include the new collection key.
-
-## Tag Convention
+## 9. Tag Convention
 
 | Tag Pattern | Purpose | Example |
 |---|---|---|
@@ -274,7 +794,9 @@ Then update this SKILL.md to include the new collection key.
 | Topic tags | Thematic classification | `Machine-Learning`, `Survey`, `Benchmark` |
 | Status tags | Reading status | `To-Read`, `In-Progress`, `Done` |
 
-## Note Templates
+---
+
+## 10. Note Templates
 
 ### General Reading Note
 
@@ -321,30 +843,9 @@ Then update this SKILL.md to include the new collection key.
 <p><b>Limitations:</b> Scope constraints or caveats.</p>
 ```
 
-## Helper Function
+---
 
-Standardized note creation — handles both raw text and HTML input:
-
-```python
-def add_note(zot, item_key: str, content: str) -> bool:
-    """Add a note to an existing item. Auto-wraps plain text in <p> tags."""
-    note_template = zot.item_template("note")
-    if not content.strip().startswith("<"):
-        content = f"<p>{content}</p>"
-    note_template["note"] = content
-    note_template["parentItem"] = item_key
-    try:
-        response = zot.create_items([note_template])
-        if response.get("successful"):
-            return True
-        print(f"  Note failed for {item_key}: {response.get('failed', {})}")
-        return False
-    except Exception as e:
-        print(f"  Note error for {item_key}: {e}")
-        return False
-```
-
-## Batch Import
+## 11. Batch Import
 
 For adding multiple references at once with duplicate checking and rate limiting:
 
@@ -420,12 +921,230 @@ for i, item_info in enumerate(items_to_add):
 print(f"\nDone: {created} created, {skipped} skipped, {failed} failed")
 ```
 
-## Troubleshooting
+---
+
+## 12. Existing MCP Tools Reference
+
+The Zotero MCP connector provides these tools. All use the local API for reads.
+
+### Read/Search Tools (WORKING)
+
+| Tool | Description | Key Parameters |
+|------|------------|---------------|
+| `zotero_search_items` | Search by query string | `query`, `qmode`, `item_type`, `tag`, `limit` |
+| `zotero_get_item_metadata` | Get item details by key | `item_key`, `format`, `include_abstract` |
+| `zotero_get_collections` | List all collections | `limit` |
+| `zotero_get_collection_items` | Items in a collection | (collection key) |
+| `zotero_get_tags` | List all tags | — |
+| `zotero_search_by_tag` | Find items by tag | (tag name) |
+| `zotero_get_item_children` | Notes/attachments for item | (item key) |
+| `zotero_get_notes` | Get notes for item | (item key) |
+| `zotero_get_annotations` | PDF annotations | (item key) |
+| `zotero_get_item_fulltext` | Full text of attachment | (item key) |
+| `zotero_get_recent` | Recently added items | — |
+| `zotero_search_notes` | Search within notes | (query) |
+| `zotero_semantic_search` | Semantic similarity search | (query) |
+| `zotero_advanced_search` | Complex queries | — |
+| `fetch` | Get fulltext/metadata by ID | `id` |
+
+### Write Tools (BROKEN in local mode — use pyzotero / Web API instead)
+
+| Tool | Status | Reason |
+|------|--------|--------|
+| `zotero_create_note` | **FAILS** (400) | Local API doesn't support POST |
+| `zotero_batch_update_tags` | **FAILS** (400/501) | Local API doesn't support POST/PATCH |
+| `zotero_update_search_database` | Works | Updates local semantic search DB only |
+
+### Fixing MCP Write Tools (Optional)
+
+To enable the MCP connector's write tools, update the Zotero MCP config to use the Web API:
+
+1. Edit `%APPDATA%\Claude\claude_desktop_config.json`
+2. Update the `zotero` entry:
+
+```json
+"zotero": {
+  "command": "C:\\Users\\wenyu\\anaconda3\\envs\\zotero-mcp-env\\Scripts\\zotero-mcp.exe",
+  "args": ["serve", "--transport", "stdio"],
+  "env": {
+    "ZOTERO_LOCAL": "false",
+    "ZOTERO_API_KEY": "hLGhkxO20sXiKpMF62mGDeG2",
+    "ZOTERO_LIBRARY_ID": "14772686",
+    "ZOTERO_LIBRARY_TYPE": "user"
+  }
+}
+```
+
+3. Restart Claude Desktop
+
+**Trade-off:** Switching to Web API makes writes work but reads become slower (network vs local).
+
+---
+
+## 13. Error Handling
+
+### Common Error Codes
+
+| Code | Meaning | Solution |
+|------|---------|----------|
+| 200 | OK (GET) | Success |
+| 204 | No Content | Success (DELETE/PATCH) |
+| 400 | Bad Request | Check JSON format; local API returns this for unsupported methods (POST) |
+| 403 | Forbidden | Missing `Zotero-Allowed-Request: true` header (local) or invalid API key (web) |
+| 404 | Not Found | Item/collection key doesn't exist |
+| 409 | Conflict | Version mismatch — re-fetch item, get new version, retry |
+| 412 | Precondition Failed | `If-Unmodified-Since-Version` doesn't match; item was modified by another client |
+| 413 | Request Entity Too Large | Payload exceeds max (try fewer items per batch) |
+| 429 | Too Many Requests | Rate limited — wait and retry (check `Retry-After` header) |
+| 501 | Not Implemented | Local API doesn't support this method (PATCH/DELETE) |
+
+### Version Conflict Recovery
+
+```python
+from pyzotero import zotero_errors
+
+try:
+    zot.update_item(item["data"])
+except zotero_errors.PreConditionError:
+    # Re-fetch to get the latest version
+    fresh_item = zot.item(item["data"]["key"])
+    fresh_item["data"]["title"] = "Your updated title"
+    zot.update_item(fresh_item["data"])
+```
+
+### Rate Limiting
+
+```python
+import time
+
+def safe_api_call(func, *args, max_retries=3, **kwargs):
+    for attempt in range(max_retries):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if "429" in str(e):
+                wait = 2 ** attempt  # Exponential backoff
+                time.sleep(wait)
+            else:
+                raise
+    raise Exception("Max retries exceeded")
+```
+
+### Unicode / Encoding
+
+Always use UTF-8 encoding when sending data:
+```powershell
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+$r = Invoke-WebRequest ... -Body $bytes
+```
+
+For Python on Windows console:
+```python
+import sys
+sys.stdout.reconfigure(encoding='utf-8')
+```
+
+---
+
+## 14. Integration with Knowledge-Base Skill
+
+### Obsidian Sub-Category → Zotero Collection Mapping
+
+When the knowledge-base skill creates Obsidian notes, use this mapping to also
+add the paper to the corresponding Zotero collection:
+
+```python
+OBSIDIAN_TO_ZOTERO = {
+    "ABM": "GH5CN2ZZ",
+    "ABM/introduction": "95LER8AR",
+    "ABM/Implication": "BLWKV8H9",
+    "ABM/Flood damage": "RGWPTYWR",
+    "ABM/Flood insurance": "YSSPJU2R",
+    # Add more mappings as collections grow
+}
+```
+
+### One-Command Pipeline — Zotero Steps
+
+When processing a new paper through the research pipeline:
+
+1. **Search Zotero** (MCP tool, local API): Check if the paper already exists
+   ```
+   zotero_search_items(query="paper title or DOI")
+   ```
+
+2. **Create Item** (Web API via pyzotero): If not found, create it
+   ```python
+   zot = get_client()  # from zotero_client.py
+   template = zot.item_template("journalArticle")
+   # ... fill template ...
+   result = zot.create_items([template])
+   ```
+
+3. **Add to Collection** (Web API): Assign to appropriate collection
+   ```python
+   col_key = get_collection("flood_adaptation")  # from config.json
+   # collection key is set in template["collections"] before creation
+   ```
+
+4. **Attach Note** (Web API): Add reading notes or AI summary
+   ```python
+   add_note(zot, new_key, note_html)
+   ```
+
+5. **Tag for Tracking** (Web API): Add status tags
+   ```python
+   item = zot.item(new_key)
+   item["data"]["tags"].extend([{"tag": "to-read"}, {"tag": "pipeline-added"}])
+   zot.update_item(item["data"])
+   ```
+
+---
+
+## 15. Quick Reference Card
+
+### Reads (Local API — always available)
+```
+GET http://localhost:23119/api/users/14772686/items?q=QUERY&limit=N
+GET http://localhost:23119/api/users/14772686/items/ITEMKEY
+GET http://localhost:23119/api/users/14772686/items/ITEMKEY/children
+GET http://localhost:23119/api/users/14772686/collections
+GET http://localhost:23119/api/users/14772686/collections/COLLKEY/items
+GET http://localhost:23119/api/users/14772686/tags
+GET http://localhost:23119/api/users/14772686/items/trash
+GET http://localhost:23119/api/users/14772686/searches
+Header: Zotero-Allowed-Request: true
+```
+
+### Writes (Web API — requires API key)
+```
+POST   https://api.zotero.org/users/14772686/items          (create items)
+POST   https://api.zotero.org/users/14772686/collections    (create collections)
+PATCH  https://api.zotero.org/users/14772686/items/ITEMKEY  (update item)
+DELETE https://api.zotero.org/users/14772686/items/ITEMKEY  (delete item)
+DELETE https://api.zotero.org/users/14772686/items?itemKey=K1,K2  (batch delete)
+DELETE https://api.zotero.org/users/14772686/collections/COLLKEY  (delete collection)
+Headers: Zotero-API-Key: KEY, Zotero-API-Version: 3, Content-Type: application/json
+```
+
+### All Item Types Available
+`journalArticle`, `conferencePaper`, `book`, `bookSection`, `thesis`,
+`report`, `webpage`, `preprint`, `manuscript`, `note`, `attachment`,
+`document`, `presentation`, `computerProgram`, `patent`, `statute`,
+`case`, `hearing`, `bill`, `map`, `artwork`, `film`, `podcast`,
+`videoRecording`, `audioRecording`, `interview`, `letter`, `email`,
+`instantMessage`, `forumPost`, `blogPost`, `encyclopediaArticle`,
+`dictionaryEntry`, `magazineArticle`, `newspaperArticle`, `radioBroadcast`,
+`tvBroadcast`
+
+---
+
+## 16. Troubleshooting
 
 | Error | Cause | Fix |
 |---|---|---|
 | 403 Forbidden | API key lacks write permission | Check https://www.zotero.org/settings/keys |
-| Missing credentials | Env vars not set | Set `ZOTERO_API_KEY` and `ZOTERO_LIBRARY_ID` |
+| Missing credentials | Env vars not set | Set `ZOTERO_API_KEY` and `ZOTERO_LIBRARY_ID` or use config.json |
 | Item not appearing | Sync delay (1-10s) | Wait, then refresh Zotero desktop |
 | PDF upload fails | File not found or invalid | Verify path exists, file > 1KB |
 | Duplicate created | Skipped search step | Always search before creating |
@@ -435,6 +1154,14 @@ print(f"\nDone: {created} created, {skipped} skipped, {failed} failed")
 
 ## Bundled Resources
 
-- `references/api-reference.md` - Full Zotero API documentation
-- `references/item-types.md` - Item type field specifications
-- `scripts/add_literature.py` - Reusable Python script template
+- `config.json` — API credentials and collection key mappings (single source of truth)
+- `references/api-reference.md` — Full Zotero API documentation
+- `references/item-types.md` — Item type field specifications
+- `scripts/zotero_client.py` — Shared Python client with `get_client()`, `add_note()`, `check_duplicate()`, `ZoteroDualClient`
+- `scripts/add_literature.py` — Reusable Python script template
+
+---
+
+*Last updated: 2026-04-05*
+*Tested against: Zotero 7 desktop, local API port 23119, pyzotero in zotero-mcp-env*
+
