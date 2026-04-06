@@ -1,0 +1,8 @@
+{
+  "zotero_api_key": "YOUR_API_KEY",
+  "zotero_library_id": "YOUR_LIBRARY_ID",
+  "zotero_library_type": "user",
+  "collections": {
+    "example_collection": "COLLECTION_KEY"
+  }
+}
