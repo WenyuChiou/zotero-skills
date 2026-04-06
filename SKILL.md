@@ -7,6 +7,140 @@ description: Full CRUD operations on Zotero library — search, add, update, del
 
 Complete workflow for managing Zotero references: search, add, classify, annotate, update, delete, and organize.
 
+## API Setup Guide
+
+### Getting Your Zotero API Key
+
+1. Go to https://www.zotero.org/settings/keys
+2. Click **"New Key"** or **"Create new private key"**
+3. Grant these permissions:
+   - Library: Read/Write (required for write operations)
+   - Notes: Read/Write (required for note creation)
+   - Allow write access: **Enabled**
+4. Click **Create** and copy the key
+5. Store the key securely in:
+   - **Option A (Recommended):** `~/.claude/skills/zotero-skills/config.json` under `"zotero_api_key"`
+   - **Option B:** Environment variable `ZOTERO_API_KEY`
+
+### Finding Your Library ID
+
+1. Go to https://www.zotero.org/settings/keys (same page as API key)
+2. Your **Library ID** is displayed on the page (e.g., `14772686`)
+3. Store it in:
+   - **Option A (Recommended):** `~/.claude/skills/zotero-skills/config.json` under `"zotero_library_id"`
+   - **Option B:** Environment variable `ZOTERO_LIBRARY_ID`
+
+### Setting Up Environment Variables
+
+If not using `config.json`, set these environment variables in your shell or IDE:
+
+**PowerShell:**
+```powershell
+$env:ZOTERO_API_KEY = "your_key_here"
+$env:ZOTERO_LIBRARY_ID = "14772686"
+$env:ZOTERO_LIBRARY_TYPE = "user"
+```
+
+**Bash:**
+```bash
+export ZOTERO_API_KEY="your_key_here"
+export ZOTERO_LIBRARY_ID="14772686"
+export ZOTERO_LIBRARY_TYPE="user"
+```
+
+**Python (in scripts):**
+```python
+import os
+os.environ["ZOTERO_API_KEY"] = "your_key_here"
+os.environ["ZOTERO_LIBRARY_ID"] = "14772686"
+```
+
+---
+
+## API Routing Strategy
+
+This skill uses **two different APIs** for different operations. Understanding which to use prevents errors.
+
+### Search & Read Operations: Use Local API (Zotero MCP)
+
+| Operation | Recommended Tool | API | Speed | Key Required | Example |
+|---|---|---|---|---|---|
+| Search items | MCP: `zotero_search_items` | Local API | Very Fast | No | Find papers by keyword |
+| Get item details | MCP: `zotero_get_item_metadata` | Local API | Fast | No | Retrieve paper metadata |
+| List collections | MCP: `zotero_get_collections` | Local API | Fast | No | Show all folders |
+| Get notes | MCP: `zotero_get_notes` | Local API | Fast | No | Read reading notes |
+| List tags | MCP: `zotero_get_tags` | Local API | Fast | No | Show all tags |
+
+**Advantages:**
+- No rate limiting
+- Works offline (when Zotero desktop is open)
+- Localhost (http://localhost:23119/api)
+- No credentials required (only header: `Zotero-Allowed-Request: true`)
+
+**Important:** These tools work ONLY when Zotero desktop application is running.
+
+### Write Operations: Use Web API (pyzotero or direct HTTP)
+
+| Operation | Recommended Tool | API | Key Required | Example |
+|---|---|---|---|---|
+| Create item | pyzotero: `zot.create_items()` | Web API | **YES** | Add new paper to library |
+| Add note | pyzotero: `add_note()` function | Web API | **YES** | Add reading notes |
+| Update tags | pyzotero: `zot.update_item()` | Web API | **YES** | Add/remove tags |
+| Update metadata | pyzotero: `zot.update_item()` | Web API | **YES** | Change title or date |
+| Create collection | pyzotero: `zot.create_collections()` | Web API | **YES** | New folder |
+| Delete item | pyzotero: `zot.delete_item()` | Web API | **YES** | Move to trash |
+
+**Advantages:**
+- Full CRUD support (Create, Read, Update, Delete)
+- Works even if Zotero desktop is closed
+- Rate limit: 100 requests per 10 seconds per IP
+
+**Disadvantages:**
+- Slower than local API
+- Requires API key
+- Subject to rate limiting
+
+**Web API base URL:** `https://api.zotero.org`
+
+### Fallback: When Local API Unavailable
+
+If Zotero desktop is not running or local API is not accessible on `localhost:23119`, pyzotero automatically handles BOTH read and write via the Web API (slower but complete).
+
+### Why MCP Write Tools Will Fail
+
+The Zotero MCP connector (`zotero_create_note`, `zotero_batch_update_tags`, etc.) is configured with `ZOTERO_LOCAL=true`, which means:
+
+- It uses `http://localhost:23119/api` (local API only)
+- Local API does NOT support write operations
+- Attempted writes return:
+  - `400 Endpoint does not support method` (for POST)
+  - `501 Method not implemented` (for PATCH/DELETE)
+
+**Do not use MCP write tools.** Instead:
+
+1. **Use pyzotero for Python code:**
+   ```python
+   from zotero_client import get_client, add_note
+   zot = get_client()
+   zot.create_items([template])
+   add_note(zot, item_key, html)
+   ```
+
+2. **Use Web API directly for PowerShell:**
+   ```powershell
+   $h = @{
+     "Zotero-API-Key" = "your_key"
+     "Zotero-API-Version" = "3"
+     "Content-Type" = "application/json"
+   }
+   Invoke-WebRequest -Uri "https://api.zotero.org/users/14772686/items" -Method POST -Headers $h -Body $json
+   ```
+
+3. **Updating MCP Config (Optional, not recommended):**
+   If you want to enable MCP write tools, set `ZOTERO_LOCAL=false` in claude_desktop_config.json. Trade-off: all reads become slower (network instead of localhost).
+
+---
+
 ## Dual-API Architecture
 
 This skill uses two API surfaces depending on the operation:
@@ -67,13 +201,7 @@ Credentials and collection keys are stored in `~/.claude/skills/zotero-skills/co
 }
 ```
 
-### 1.4 Getting a Zotero API Key
-1. Go to https://www.zotero.org/settings/keys
-2. Click "Create new private key"
-3. Grant permissions: Library Read/Write, Notes Read/Write, Allow write access
-4. Save and copy the key
-
-### 1.5 Required Headers
+### 1.4 Required Headers
 
 **Local API (reads only):**
 ```
