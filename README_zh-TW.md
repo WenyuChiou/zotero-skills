@@ -98,7 +98,6 @@ cp -r zotero-skills/ your-project/.claude/skills/zotero-skills/
 | **Cursor / Windsurf** | 將 `SKILL.md` 加入 `.cursor/rules` 或對應規則檔 |
 | **其他工具** | 將 `SKILL.md` 相關段落貼入系統提示 |
 
-`scripts/zotero_client.py` 與框架無關，可從任何 Python 腳本直接匯入。
 ---
 
 ## 目錄結構
