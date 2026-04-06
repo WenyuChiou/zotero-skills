@@ -58,7 +58,11 @@
 
 ### 設定檔
 
-在技能根目錄建立 `config.json`：
+將 `config.example.json` 複製為 `config.json`，填入你的憑證：
+
+```bash
+cp config.example.json config.json
+```
 
 ```json
 {
@@ -70,7 +74,8 @@
   }
 }
 ```
-> **提示：** Collection key 是 `https://www.zotero.org/users/<library_id>/collections` 網址最後一段
+
+> **注意：** `config.json` 已加入 gitignore，不會被推送。切勿提交含有 API 金鑰的檔案。
 
 ### 安裝方式
 
@@ -105,7 +110,8 @@ cp -r zotero-skills/ your-project/.claude/skills/zotero-skills/
 ```
 ~/.claude/skills/zotero-skills/        # 全域安裝路徑
 ├── SKILL.md              # AI 助理的完整 CRUD 指令參考
-├── config.json           # API 憑證 + 集合對應
+├── config.example.json   # API 憑證模板
+├── config.json           # 你的憑證（已 gitignore）
 ├── scripts/
 │   ├── zotero_client.py  # ZoteroDualClient + 輔助函式
 │   └── add_literature.py # 批次匯入腳本
@@ -130,6 +136,7 @@ Zotero 提供兩個 API 介面，本技能自動路由。
 | **寫入** | ❌ 不支援（回傳 `501`） | ✅ 完整 CRUD |
 | **速率限制** | 無 | 每 10 秒約 50 次請求 |
 | **驗證方式** | `Zotero-Allowed-Request: true` header | `Zotero-API-Key: <key>` header |
+
 ### 健康檢查與自動降級
 
 初始化時，`ZoteroDualClient` 呼叫 `check_local_api()`，向 `localhost:23119` 發送輕量 GET 請求。
@@ -207,15 +214,6 @@ items = zot.items(tag="machine-learning", limit=25)
 for item in items:
     print(f"{item['data']['title']} — {item['data'].get('date', 'n.d.')}")
 ```
-
----
-
-## 環境需求
-
-- **Python** 3.10+
-- **pyzotero**（`pip install pyzotero`）
-- **Zotero 帳號** 及 API 金鑰 — 免費註冊於 [zotero.org](https://www.zotero.org)
-- *（選用）* **Zotero 桌面版** — 啟用本地 API 讀取，效能更佳
 
 ---
 

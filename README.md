@@ -58,7 +58,11 @@ See [Features](#features) below for the full list.
 
 ### Configuration
 
-Create `config.json` in the skill root:
+Copy `config.example.json` to `config.json` and fill in your credentials:
+
+```bash
+cp config.example.json config.json
+```
 
 ```json
 {
@@ -70,7 +74,8 @@ Create `config.json` in the skill root:
   }
 }
 ```
-> **Tip:** Collection keys are the last URL segment at `https://www.zotero.org/users/<library_id>/collections`
+
+> **Note:** `config.json` is gitignored to protect your API key. Never commit credentials.
 
 ### Installation
 
@@ -105,7 +110,8 @@ This skill was developed for Claude Code but works with any AI assistant.
 ```
 ~/.claude/skills/zotero-skills/        # Global install path
 ├── SKILL.md              # Full CRUD reference for AI assistants
-├── config.json           # API credentials + collection mappings
+├── config.example.json   # Template for API credentials
+├── config.json           # Your credentials (gitignored)
 ├── scripts/
 │   ├── zotero_client.py  # ZoteroDualClient + helpers
 │   └── add_literature.py # Batch import script
@@ -130,6 +136,7 @@ Zotero exposes two APIs with different capabilities. This skill routes automatic
 | **Write** | ❌ Not supported (`501`) | ✅ Full CRUD |
 | **Rate limit** | None | ~50 req / 10 sec |
 | **Auth** | `Zotero-Allowed-Request: true` header | `Zotero-API-Key: <key>` header |
+
 ### Health Check & Auto-Fallback
 
 On initialization, `ZoteroDualClient` calls `check_local_api()` — a lightweight GET to `localhost:23119`.
@@ -207,15 +214,6 @@ items = zot.items(tag="machine-learning", limit=25)
 for item in items:
     print(f"{item['data']['title']} — {item['data'].get('date', 'n.d.')}")
 ```
-
----
-
-## Requirements
-
-- **Python** 3.10+
-- **pyzotero** (`pip install pyzotero`)
-- A **Zotero account** with an API key — free at [zotero.org](https://www.zotero.org)
-- *(Optional)* **Zotero desktop app** — enables local API reads for faster performance
 
 ---
 
