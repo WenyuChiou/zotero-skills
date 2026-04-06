@@ -1,45 +1,45 @@
-# Zotero Skills — Claude Code Skill for Zotero CRUD
+# Zotero Skills — AI Coding Assistant Skill for Zotero CRUD
 
-> Comprehensive Zotero library management via dual-API architecture (local read + web write)
-
-![Claude Code Compatible](https://img.shields.io/badge/Claude_Code-Compatible-blueviolet?style=flat-square)
+> Comprehensive Zotero library management via dual-API architecture (local read + web write).  
+> Works with any AI coding CLI that supports skills (Claude Code, Codex, Gemini CLI, etc.)
 
 ---
 
-## What's New (zotero-write → zotero-skills)
+## Overview
 
-This project was formerly `zotero-write`. The rename to `zotero-skills` reflects a major expansion in scope:
+A skill that gives AI coding assistants full CRUD access to your Zotero library. Search, add, classify, annotate, and organize references programmatically — all from your terminal.
 
-- **Merged comprehensive CRUD documentation** — `SKILL.md` now covers all read, create, update, and delete operations in a single reference (1,167 lines)
-- **`ZoteroDualClient` class** — Automatic routing between local API (reads) and web API (writes)
-- **Full JSON templates** for all item types: journal article, book, book section, conference paper, report, thesis, webpage, and more
-- **`safe_api_call()`** — Wrapper with built-in rate limiting to stay within Zotero's API quotas
+**Key capabilities:**
+
+- **Dual-API routing** — Reads go through the fast local API (port 23119), writes go through the Zotero Web API
+- **Full CRUD** — Create, read, update, and delete items, notes, tags, and collections
+- **JSON templates** for all item types: journal article, book, book section, conference paper, report, thesis, webpage, and more
+- **Rate limiting** — Built-in `safe_api_call()` wrapper to stay within Zotero's API quotas
 - **Collection management** — Create, list, and organize collections; move items between them
-- **Child note creation** — Attach rich-text notes to any parent item
-- **Batch import support** — Add multiple items in a single API call
-- **Error handling guide** — Common failure modes and fixes
-- **Quick reference card** — Copy-paste code snippets for everyday tasks
+- **Batch operations** — Add multiple items in a single API call
+- **Child notes** — Attach rich-text notes to any parent item
+
 ---
 
-## Setup / Environment Configuration
+## Setup
 
 ### Prerequisites
 
 - **Python 3.10+**
-- **pyzotero** — Install via pip:
+- **pyzotero**:
   ```bash
   pip install pyzotero
   ```
 
-### Getting Your API Credentials
+### API Credentials
 
-1. **API Key** — Generate one at [https://www.zotero.org/settings/keys](https://www.zotero.org/settings/keys)
+1. **API Key** — Generate at [https://www.zotero.org/settings/keys](https://www.zotero.org/settings/keys)
    - Enable **Allow library access** and **Allow write access**
 2. **Library ID** — Found on the same page under **"Your userID for use in API calls"**
 
 ### Configuration
 
-Create (or edit) `config.json` in the skill root:
+Create `config.json` in the skill root:
 
 ```json
 {
@@ -52,7 +52,8 @@ Create (or edit) `config.json` in the skill root:
 }
 ```
 
-> **Tip:** You can find collection keys by browsing your library at `https://www.zotero.org/users/<library_id>/collections` — the key is the last segment of the URL.
+> **Tip:** Collection keys can be found at `https://www.zotero.org/users/<library_id>/collections` — the key is the last URL segment.
+
 ### Installation
 
 **Global (all projects):**
@@ -64,6 +65,8 @@ cp -r zotero-skills/ ~/.claude/skills/zotero-skills/
 ```bash
 cp -r zotero-skills/ your-project/.claude/skills/zotero-skills/
 ```
+
+For non-Claude CLIs, place the skill folder wherever your tool reads skill definitions.
 
 ---
 
@@ -79,14 +82,16 @@ zotero-skills/
 ├── references/
 │   ├── api-reference.md  # Zotero API endpoint docs
 │   └── item-types.md     # JSON templates for all item types
+├── docs/                 # Example screenshots
 ├── .gitignore
 └── README.md
 ```
+
 ---
 
 ## Usage Examples
 
-### Read items from your library
+### Read items
 
 ```python
 from pyzotero import zotero
@@ -107,16 +112,15 @@ template["publicationTitle"] = "Nature Machine Intelligence"
 template["date"] = "2025"
 template["DOI"] = "10.1038/s42256-025-00001-1"
 resp = zot.create_items([template])
-print(resp)
 ```
+
 ### Add a child note
 
 ```python
 parent_key = "ABC12345"
-note_content = "<p>Key findings: Model achieves 95% accuracy on benchmark.</p>"
 note_template = zot.item_template("note")
 note_template["parentItem"] = parent_key
-note_template["note"] = note_content
+note_template["note"] = "<p>Key findings: Model achieves 95% accuracy on benchmark.</p>"
 zot.create_items([note_template])
 ```
 
@@ -132,7 +136,7 @@ for item in items:
 
 ## Dual-API Architecture
 
-Zotero exposes two separate APIs with different capabilities:
+Zotero exposes two APIs with different capabilities:
 
 | | Local API (`localhost:23119`) | Web API (`api.zotero.org`) |
 |---|---|---|
@@ -140,20 +144,21 @@ Zotero exposes two separate APIs with different capabilities:
 | **Read** | ✅ Fast, full-text search | ✅ Standard queries |
 | **Write** | ❌ Read-only | ✅ Full CRUD |
 | **Rate limit** | None | ~50 req / 10 sec |
-The **`ZoteroDualClient`** in `scripts/zotero_client.py` handles this automatically — reads are routed to the local API when Zotero desktop is running (for speed), and all writes go through the web API.
+
+The `ZoteroDualClient` in `scripts/zotero_client.py` handles routing automatically — reads go to the local API when available, writes always go through the web API.
 
 ---
 
 ## Available Functions
 
-Quick reference for `scripts/zotero_client.py`:
+From `scripts/zotero_client.py`:
 
 | Function | Description |
 |---|---|
 | `get_client()` | Returns a configured `pyzotero.Zotero` instance |
-| `get_collection(name)` | Find a collection key by its display name |
+| `get_collection(name)` | Find a collection key by display name |
 | `add_note(parent_key, content)` | Attach a child note to a library item |
-| `check_duplicate(title)` | Check whether an item with the given title already exists |
+| `check_duplicate(title)` | Check whether an item with the given title exists |
 | `ZoteroDualClient` | Dual-API wrapper — local reads, web writes |
 | `safe_api_call(func)` | Execute an API call with automatic rate-limit backoff |
 
