@@ -1,4 +1,4 @@
-﻿r"""
+r"""
 Shared Zotero client -- single source of truth for credentials and helpers.
 
 Usage from any script::
@@ -21,16 +21,38 @@ import json
 import os
 import sys
 import time
+import urllib.request
+import urllib.error
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8")
 
 _CONFIG_PATH = Path(__file__).parent.parent / "config.json"
 
+# Local API settings
+LOCAL_API_BASE = "http://localhost:23119/api"
+LOCAL_API_HEADERS = {"Zotero-Allowed-Request": "true"}
+
 
 def _load_config():
     with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def check_local_api(timeout=2) -> bool:
+    """Test if Zotero desktop local API is reachable.
+
+    Returns True if localhost:23119 responds, False otherwise.
+    """
+    try:
+        req = urllib.request.Request(
+            f"{LOCAL_API_BASE}/users/14772686/items?limit=1",
+            headers=LOCAL_API_HEADERS,
+        )
+        urllib.request.urlopen(req, timeout=timeout)
+        return True
+    except (urllib.error.URLError, OSError, TimeoutError):
+        return False
 
 
 def get_client():
@@ -100,10 +122,13 @@ def safe_api_call(func, *args, max_retries=3, **kwargs):
 class ZoteroDualClient:
     """Dual-mode Zotero client: local API for fast reads, Web API for writes.
 
+    Automatically detects whether Zotero desktop is running.
+    If local API is unreachable, all operations fall back to Web API.
+
     Usage::
 
         dual = ZoteroDualClient()          # reads config.json automatically
-        results = dual.search("flood")     # fast local read
+        results = dual.search("flood")     # fast local read (or web fallback)
         dual.create_note("KEY", "Title", "Content")  # web write
     """
 
@@ -115,14 +140,50 @@ class ZoteroDualClient:
         self.api_key = api_key or os.environ.get("ZOTERO_API_KEY", cfg["zotero_api_key"])
         lib_type = cfg.get("zotero_library_type", "user")
 
-        # Web client for writes (needs API key) ??also used for reads if local unavailable
+        # Web client for writes (needs API key) — also used as fallback for reads
         self.web = zotero.Zotero(self.user_id, lib_type, self.api_key)
 
-        # Local client for reads (fast, no key needed)
-        try:
-            self.local = zotero.Zotero(self.user_id, lib_type, local=True)
-        except Exception:
-            self.local = self.web  # fallback to web if local unavailable
+        # Test local API connectivity before creating local client
+        self.local_available = check_local_api()
+
+        if self.local_available:
+            try:
+                self.local = zotero.Zotero(self.user_id, lib_type, local=True)
+                # Verify with a real request
+                self.local.top(limit=1)
+                print("[ZoteroDualClient] Local API connected (fast reads enabled)")
+            except Exception as e:
+                print(f"[ZoteroDualClient] Local API init failed: {e}")
+                print("[ZoteroDualClient] Falling back to Web API for all operations")
+                self.local = self.web
+                self.local_available = False
+        else:
+            print("[ZoteroDualClient] Zotero desktop not running (localhost:23119 unreachable)")
+            print("[ZoteroDualClient] Using Web API for all operations")
+            self.local = self.web
+            self.local_available = False
+
+    def _read(self, method_name, *args, **kwargs):
+        """Execute a read operation with automatic local-to-web fallback.
+
+        Tries local API first (fast). If it fails, falls back to Web API.
+        Updates self.local_available so subsequent calls skip local directly.
+        """
+        if self.local_available:
+            try:
+                return getattr(self.local, method_name)(*args, **kwargs)
+            except Exception as e:
+                error_str = str(e)
+                # Connection refused, timeout, or other network error
+                if any(k in error_str.lower() for k in ["connection", "timeout", "refused", "urlopen"]):
+                    print(f"[ZoteroDualClient] Local API lost connection: {e}")
+                    print("[ZoteroDualClient] Switching to Web API for remaining operations")
+                    self.local_available = False
+                    self.local = self.web
+                else:
+                    raise  # Re-raise non-connection errors
+        # Web API fallback
+        return getattr(self.web, method_name)(*args, **kwargs)
 
     def _require_web(self):
         if not self.api_key:
@@ -131,29 +192,38 @@ class ZoteroDualClient:
                 "Get one at https://www.zotero.org/settings/keys"
             )
 
-    # --- READ (local, fast) ---
+    def status(self) -> dict:
+        """Return current connection status."""
+        return {
+            "local_api": "connected" if self.local_available else "unavailable",
+            "web_api": "connected" if self.api_key else "no API key",
+            "read_source": "local (fast)" if self.local_available else "web",
+            "write_source": "web",
+        }
+
+    # --- READ (local with web fallback) ---
     def search(self, query, limit=25, qmode="titleCreatorYear"):
-        return self.local.items(q=query, qmode=qmode, limit=limit)
+        return self._read("items", q=query, qmode=qmode, limit=limit)
 
     def get_item(self, key):
-        return self.local.item(key)
+        return self._read("item", key)
 
     def get_collections(self):
-        return self.local.collections()
+        return self._read("collections")
 
     def get_collection_items(self, collection_key, limit=100):
-        return self.local.collection_items(collection_key, limit=limit)
+        return self._read("collection_items", collection_key, limit=limit)
 
     def get_tags(self):
-        return self.local.tags()
+        return self._read("tags")
 
     def get_children(self, key):
-        return self.local.children(key)
+        return self._read("children", key)
 
     def search_by_tag(self, tag, limit=50):
-        return self.local.items(tag=tag, limit=limit)
+        return self._read("items", tag=tag, limit=limit)
 
-    # --- WRITE (web API) ---
+    # --- WRITE (web API only — local API does not support writes) ---
     def create_item(self, item_data):
         self._require_web()
         return self.web.create_items([item_data])
@@ -184,17 +254,17 @@ class ZoteroDualClient:
             [{"name": name, "parentCollection": parent_key}]
         )
 
-    # --- UPDATE (web API, reads version from local) ---
+    # --- UPDATE (web API, reads version from local/web) ---
     def update_item(self, key, updates: dict):
         self._require_web()
-        item = self.local.item(key)  # Fast local read for version
+        item = self._read("item", key)  # Read version (local or web fallback)
         for field, value in updates.items():
             item["data"][field] = value
         return self.web.update_item(item["data"])
 
     def add_tags(self, key, new_tags: list):
         self._require_web()
-        item = self.local.item(key)
+        item = self._read("item", key)
         existing = [t["tag"] for t in item["data"]["tags"]]
         for tag in new_tags:
             if tag not in existing:
@@ -203,7 +273,7 @@ class ZoteroDualClient:
 
     def remove_tags(self, key, tags_to_remove: list):
         self._require_web()
-        item = self.local.item(key)
+        item = self._read("item", key)
         item["data"]["tags"] = [
             t for t in item["data"]["tags"] if t["tag"] not in tags_to_remove
         ]
@@ -211,7 +281,7 @@ class ZoteroDualClient:
 
     def move_to_collection(self, item_key, collection_key):
         self._require_web()
-        item = self.local.item(item_key)
+        item = self._read("item", item_key)
         if collection_key not in item["data"]["collections"]:
             item["data"]["collections"].append(collection_key)
         return self.web.update_item(item["data"])
@@ -219,21 +289,19 @@ class ZoteroDualClient:
     # --- DELETE (web API) ---
     def delete_item(self, key):
         self._require_web()
-        item = self.local.item(key)
+        item = self._read("item", key)
         return self.web.delete_item(item)
 
     def delete_items(self, keys: list):
         self._require_web()
-        items = [self.local.item(k) for k in keys]
+        items = [self._read("item", k) for k in keys]
         return self.web.delete_item(items)
 
     def delete_collection(self, collection_key):
         self._require_web()
-        coll = self.local.collection(collection_key)
+        coll = self._read("collection", collection_key)
         return self.web.delete_collection(coll)
 
     # --- TEMPLATES ---
     def get_template(self, item_type="journalArticle"):
         return self.web.item_template(item_type)
-
-
