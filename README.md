@@ -98,7 +98,6 @@ This skill was developed for Claude Code but works with any AI assistant.
 | **Cursor / Windsurf** | Add `SKILL.md` to `.cursor/rules` or equivalent rules file |
 | **Any other tool** | Paste relevant sections of `SKILL.md` into your system prompt |
 
-`scripts/zotero_client.py` is framework-agnostic — import it from any Python script.
 ---
 
 ## Project Structure
