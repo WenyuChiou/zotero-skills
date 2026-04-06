@@ -10,16 +10,37 @@ Comprehensive Zotero library management via dual-API architecture (local read + 
 
 A skill that gives AI coding assistants full CRUD access to your Zotero library. Search, add, classify, annotate, and organize references programmatically — all from your terminal.
 
-**Key capabilities:**
+See [Features](#features) below for the full list.
 
-- **Dual-API routing** — Reads go through the fast local API (port 23119), writes through Zotero Web API
-- **Automatic health check & fallback** — Detects whether Zotero desktop is running; falls back to web-only mode transparently
-- **Full CRUD** — Create, read, update, and delete items, notes, tags, and collections
-- **JSON templates** for all item types: journal article, book, book section, conference paper, report, thesis, webpage, and more- **Rate limiting** — Built-in `safe_api_call()` wrapper to stay within Zotero's API quotas
-- **Collection management** — Create, list, and organize collections; move items between them
-- **Batch operations** — Add multiple items in a single API call
-- **Child notes** — Attach rich-text notes to any parent item
-- **Research Hub integration** — End-to-end pipeline from paper search to NotebookLM
+---
+
+## Features
+
+### Core CRUD Operations
+- **Search & Discovery** — Full-text search, tag-based filtering, collection browsing, recent items
+- **Create Items** — Add journal articles, books, conference papers, reports, theses, webpages with full metadata
+- **Update & Organize** — Edit metadata, manage tags, move items between collections, batch operations
+- **Delete & Cleanup** — Remove items, notes, collections; duplicate detection
+
+### Smart API Routing
+- **Dual-API architecture** — Reads via fast local API (port 23119), writes via Zotero Web API
+- **Auto health check & fallback** — Detects Zotero desktop status; seamless fallback to web-only mode
+- **Built-in rate limiting** — `safe_api_call()` wrapper prevents API quota violations
+
+### Notes & Annotations
+- **Child notes** — Attach rich HTML notes to any library item
+- **Reading notes** — Create structured reading notes with sections
+- **Batch note creation** — Add notes to multiple items programmatically
+
+### Collection Management
+- **Create & organize** — Build hierarchical collection structures
+- **Bulk operations** — Move/copy items between collections in batch
+- **Collection browsing** — List and navigate collection trees
+
+### Integration Ready
+- **Framework-agnostic** — Works with Claude Code, Codex CLI, Gemini CLI, Cursor, or any AI assistant
+- **Python library** — Import `zotero_client.py` directly in any Python project
+- **JSON templates** — Pre-built templates for all Zotero item types
 
 ---
 
@@ -131,24 +152,6 @@ dual.create_note("ITEM_KEY", "Section", "Notes...")  # always web API
 
 - The local API **does not support write operations** — all creates/updates/deletes go through the Web API
 - If you use a Zotero MCP connector with `ZOTERO_LOCAL=true`, its write tools will fail — use `zotero_client.py` for writes
-
----
-
-## Research Hub Pipeline
-
-End-to-end pipeline from literature discovery to AI-assisted synthesis.
-
-```
-Paper Search  →  Zotero Write  →  Obsidian Note  →  Hub Index  →  NotebookLM
-                 (this skill)     (file write)      (manifest)    (AI Q&A)
-```
-1. **Paper Search** — Find papers via Google Scholar, Semantic Scholar, Crossref, or direct DOI
-2. **Zotero Write** — Add items with metadata, tags, and collection assignment using this skill
-3. **Obsidian Note** — Generate structured `.md` notes in your vault with YAML frontmatter
-4. **Build Hub Index** — Create a unified manifest linking Zotero keys ↔ Obsidian notes ↔ file paths
-5. **NotebookLM** — Upload sources for AI-assisted literature review and Q&A
-
-Hub index building and NotebookLM upload are handled by the `knowledge-base` skill.
 
 ---
 
