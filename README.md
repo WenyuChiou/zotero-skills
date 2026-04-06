@@ -1,31 +1,46 @@
 # Zotero Skills — AI Coding Assistant Skill for Zotero CRUD
+# Zotero Skills — AI 程式助理的 Zotero CRUD 技能套件
 
 > Comprehensive Zotero library management via dual-API architecture (local read + web write).
 > Works with any AI coding assistant that supports skills or custom instructions.
+>
+> 透過雙 API 架構（本地讀取 + Web 寫入）對 Zotero 文獻庫進行完整管理。
+> 相容任何支援技能（skills）或自訂指令的 AI 程式助理。
 
 ---
 
-## Overview
+## Overview / 概覽
 
 A skill that gives AI coding assistants full CRUD access to your Zotero library. Search, add, classify, annotate, and organize references programmatically — all from your terminal.
 
-**Key capabilities:**
+本技能套件讓 AI 程式助理能完整存取你的 Zotero 文獻庫，直接從終端機搜尋、新增、分類、標註、整理文獻。
+
+**Key capabilities / 主要功能：**
 
 - **Dual-API routing** — Reads go through the fast local API (port 23119), writes go through the Zotero Web API
+  **雙 API 路由** — 讀取走本地 API（port 23119），寫入走 Zotero Web API
 - **Automatic health check & fallback** — Detects whether Zotero desktop is running; falls back to web-only mode transparently
+  **自動健康檢查與降級** — 自動偵測 Zotero 桌面版是否執行中；未啟動時自動切換至純 Web 模式
 - **Full CRUD** — Create, read, update, and delete items, notes, tags, and collections
+  **完整 CRUD** — 建立、讀取、更新、刪除項目、筆記、標籤、集合
 - **JSON templates** for all item types: journal article, book, book section, conference paper, report, thesis, webpage, and more
+  **JSON 模板** — 涵蓋所有項目類型：期刊論文、書籍、書章、研討會論文、報告、論文、網頁等
 - **Rate limiting** — Built-in `safe_api_call()` wrapper to stay within Zotero's API quotas
+  **速率限制保護** — 內建 `safe_api_call()` 包裝器，自動控制 API 請求頻率
 - **Collection management** — Create, list, and organize collections; move items between them
+  **集合管理** — 建立、列出、整理集合；在集合間移動項目
 - **Batch operations** — Add multiple items in a single API call
+  **批次操作** — 單次 API 呼叫新增多筆項目
 - **Child notes** — Attach rich-text notes to any parent item
+  **子筆記** — 為任何父項目附加富文字筆記
 - **Research Hub integration** — End-to-end pipeline from paper search to NotebookLM
+  **Research Hub 整合** — 從文獻搜尋到 NotebookLM 的端對端工作流程
 
 ---
 
-## Setup
+## Setup / 安裝設定
 
-### Prerequisites
+### Prerequisites / 前置需求
 
 - **Python 3.10+**
 - **pyzotero**:
@@ -33,15 +48,16 @@ A skill that gives AI coding assistants full CRUD access to your Zotero library.
   pip install pyzotero
   ```
 
-### API Credentials
+### API Credentials / API 憑證
 
 1. **API Key** — Generate at [https://www.zotero.org/settings/keys](https://www.zotero.org/settings/keys)
-   - Enable **Allow library access** and **Allow write access**
-2. **Library ID** — Found on the same page under **"Your userID for use in API calls"**
+   **API 金鑰** — 至上方連結產生，勾選 Allow library access 和 Allow write access
+2. **Library ID** — Found on the same page under "Your userID for use in API calls"
+   **Library ID** — 同一頁面下方 "Your userID for use in API calls"
 
-### Configuration
+### Configuration / 設定檔
 
-Create `config.json` in the skill root:
+Create `config.json` in the skill root / 在技能根目錄建立 `config.json`：
 
 ```json
 {
@@ -54,39 +70,41 @@ Create `config.json` in the skill root:
 }
 ```
 
-> **Tip:** Collection keys can be found at `https://www.zotero.org/users/<library_id>/collections` — the key is the last URL segment.
+> **Tip / 提示:** Collection keys are the last URL segment at `https://www.zotero.org/users/<library_id>/collections`
 
-### Installation
+### Installation / 安裝方式
 
-**Global (all projects):**
+**Global / 全域安裝（所有專案）：**
 ```bash
 cp -r zotero-skills/ ~/.claude/skills/zotero-skills/
 ```
 
-**Project-level:**
+**Project-level / 專案層級：**
 ```bash
 cp -r zotero-skills/ your-project/.claude/skills/zotero-skills/
 ```
 
 ---
 
-## Non-Claude CLI Adaptation
+## Non-Claude CLI Adaptation / 非 Claude CLI 使用說明
 
-This skill was developed for Claude Code but the core Python scripts and API patterns work with any AI assistant:
+This skill was developed for Claude Code but works with any AI assistant.
+本技能以 Claude Code 開發，但適用於任何 AI 助理。
 
-| CLI | How to load the skill |
+| CLI | How to load the skill / 如何載入技能 |
 |---|---|
-| **Claude Code** | Place in `~/.claude/skills/` or `.claude/skills/` — auto-loaded |
-| **Codex CLI** | Pass `SKILL.md` content as a context file via `-C` or include in your task prompt |
-| **Gemini CLI** | Include `SKILL.md` in your system prompt or project context |
+| **Claude Code** | Place in `~/.claude/skills/` or `.claude/skills/` — auto-loaded / 自動載入 |
+| **Codex CLI** | Pass `SKILL.md` as a context file via `-C` or include in task prompt |
+| **Gemini CLI** | Include `SKILL.md` in system prompt or project context |
 | **Cursor / Windsurf** | Add `SKILL.md` to `.cursor/rules` or equivalent rules file |
-| **Any other tool** | Paste the relevant sections of `SKILL.md` into your system prompt |
+| **Any other tool** | Paste relevant sections of `SKILL.md` into your system prompt |
 
-The `scripts/zotero_client.py` module is framework-agnostic — import it from any Python script regardless of which AI assistant you use.
+`scripts/zotero_client.py` is framework-agnostic — import it from any Python script.
+`scripts/zotero_client.py` 與框架無關，可從任何 Python 腳本直接匯入。
 
 ---
 
-## Project Structure
+## Project Structure / 目錄結構
 
 ```
 zotero-skills/
@@ -104,91 +122,102 @@ zotero-skills/
 
 ---
 
-## Dual-API Architecture
+## Dual-API Architecture / 雙 API 架構
 
-Zotero exposes two APIs with different capabilities. This skill uses both and routes automatically:
+Zotero exposes two APIs with different capabilities. This skill routes automatically.
+Zotero 提供兩個 API 介面，本技能自動路由。
 
 | | Local API (`localhost:23119`) | Web API (`api.zotero.org`) |
 |---|---|---|
-| **Access** | Requires Zotero desktop running | Works anywhere |
-| **Read** | ✅ Fast, full-text search | ✅ Standard queries |
-| **Write** | ❌ Not supported (`501 Method not implemented`) | ✅ Full CRUD |
-| **Rate limit** | None | ~50 req / 10 sec |
-| **Auth** | `Zotero-Allowed-Request: true` header | `Zotero-API-Key: <key>` header |
+| **Access / 存取條件** | Requires Zotero desktop running / 需桌面版執行 | Works anywhere / 任何環境 |
+| **Read / 讀取** | ✅ Fast, full-text search | ✅ Standard queries |
+| **Write / 寫入** | ❌ Not supported (`501 Method not implemented`) | ✅ Full CRUD |
+| **Rate limit / 速率限制** | None / 無 | ~50 req / 10 sec |
+| **Auth / 驗證** | `Zotero-Allowed-Request: true` header | `Zotero-API-Key: <key>` header |
 
-### Health Check & Auto-Fallback
+### Health Check & Auto-Fallback / 健康檢查與自動降級
 
-On initialization, `ZoteroDualClient` calls `check_local_api()` which makes a lightweight GET request to `localhost:23119`. If Zotero desktop is not running:
+On initialization, `ZoteroDualClient` calls `check_local_api()` — a lightweight GET to `localhost:23119`.
+初始化時，`ZoteroDualClient` 呼叫 `check_local_api()`，向 `localhost:23119` 發送輕量 GET 請求。
 
-- Reads fall back to the Web API automatically
-- No configuration change needed
-- Performance degrades slightly (web latency vs. local), but all operations still work
+- If Zotero desktop is not running → reads fall back to Web API automatically, no config change needed
+  若桌面版未執行 → 讀取自動降級為 Web API，無需任何設定變更
+- Performance degrades slightly (web latency), but all operations still work
+  效能略降，但所有操作仍正常運作
 
 ```python
 from zotero_client import ZoteroDualClient
 
 dual = ZoteroDualClient()
-# dual.local_available → True if Zotero desktop is running, False otherwise
+# dual.local_available → True if Zotero desktop running, False otherwise
 
-results = dual.search("flood adaptation")   # uses local API if available
-dual.create_note("ITEM_KEY", "Section", "Notes...")  # always uses web API
+results = dual.search("flood adaptation")            # local API if available
+dual.create_note("ITEM_KEY", "Section", "Notes...")  # always web API
 ```
 
-### Critical Notes
+### Critical Notes / 重要注意事項
 
-- The local API **does not support write operations** — all creates, updates, and deletes go through the Web API
-- If you use a Zotero MCP connector with `ZOTERO_LOCAL=true`, its write tools will fail — use `zotero_client.py` for writes instead
-- Hybrid pattern: MCP or local API for reads, `ZoteroDualClient` for writes
+- The local API **does not support write operations** — all creates/updates/deletes go through the Web API
+  本地 API **不支援寫入** — 所有建立、更新、刪除一律透過 Web API
+- If you use a Zotero MCP connector with `ZOTERO_LOCAL=true`, its write tools will fail — use `zotero_client.py` for writes
+  若 Zotero MCP connector 設定 `ZOTERO_LOCAL=true`，其寫入工具將失敗，請改用 `zotero_client.py`
 
 ---
 
-## Research Hub Pipeline
+## Research Hub Pipeline / Research Hub 工作流程
 
-This skill is a component in the Research Hub workflow — a complete pipeline from literature discovery to AI-assisted synthesis:
+End-to-end pipeline from literature discovery to AI-assisted synthesis.
+從文獻探索到 AI 輔助綜合分析的完整管道。
 
 ```
-Paper Search
+Paper Search / 文獻搜尋
     ↓
-Zotero Write          ← this skill handles this step
+Zotero Write / Zotero 寫入          ← this skill / 本技能
     ↓
-Obsidian Note         (via Obsidian MCP or file write)
+Obsidian Note / Obsidian 筆記       (via Obsidian MCP or file write)
     ↓
-Build Hub Index       (aggregates Zotero + Obsidian metadata)
+Build Hub Index / 建立 Hub 索引     (aggregates Zotero + Obsidian metadata)
     ↓
-NotebookLM            (upload sources for AI-assisted Q&A)
+NotebookLM                          (upload sources for AI-assisted Q&A)
 ```
 
-**Step-by-step:**
+**Steps / 步驟：**
 
 1. **Paper Search** — Find papers via Google Scholar, Semantic Scholar, Crossref, or direct DOI lookup
-2. **Zotero Write** — Use this skill to add items to Zotero with metadata, tags, and collection assignment
+   **文獻搜尋** — 透過 Google Scholar、Semantic Scholar、Crossref 或直接 DOI 查詢
+2. **Zotero Write** — Use this skill to add items with metadata, tags, and collection assignment
+   **Zotero 寫入** — 使用本技能將項目加入 Zotero，附上元數據、標籤、集合分類
 3. **Obsidian Note** — Generate a structured `.md` note in your Obsidian vault with key findings
-4. **Build Hub Index** — Run the hub indexer to create a unified JSON/CSV manifest linking Zotero keys ↔ Obsidian notes ↔ file paths
-5. **NotebookLM** — Upload the hub index (and linked PDFs) to NotebookLM for AI-assisted literature review
+   **Obsidian 筆記** — 在 Obsidian vault 產生結構化筆記，記錄關鍵發現
+4. **Build Hub Index** — Create a unified JSON/CSV manifest linking Zotero keys ↔ Obsidian notes ↔ file paths
+   **建立 Hub 索引** — 產生統一清單，連結 Zotero 金鑰 ↔ Obsidian 筆記 ↔ 檔案路徑
+5. **NotebookLM** — Upload the hub index (and linked PDFs) for AI-assisted literature review
+   **NotebookLM** — 上傳 Hub 索引（及相關 PDF）進行 AI 輔助文獻回顧
 
-The skill's `SKILL.md` includes instructions for each step. The hub index builder and NotebookLM upload steps are handled by the `knowledge-base` skill.
+Hub index building and NotebookLM upload are handled by the `knowledge-base` skill.
+Hub 索引建立器和 NotebookLM 上傳由 `knowledge-base` 技能處理。
 
 ---
 
-## Available Functions
+## Available Functions / 可用函式
 
-From `scripts/zotero_client.py`:
+From `scripts/zotero_client.py` / 來自 `scripts/zotero_client.py`：
 
-| Function | Description |
+| Function | Description / 說明 |
 |---|---|
-| `get_client()` | Returns a configured `pyzotero.Zotero` Web API instance |
-| `get_collection(name)` | Find a collection key by display name from `config.json` |
+| `get_client()` | Configured `pyzotero.Zotero` Web API instance |
+| `get_collection(name)` | Find collection key by display name from `config.json` |
 | `add_note(zot, item_key, content)` | Attach a child note to a library item |
-| `check_duplicate(zot, title, doi)` | Check whether an item with the given title or DOI exists |
+| `check_duplicate(zot, title, doi)` | Check if item with given title or DOI exists |
 | `check_local_api(timeout)` | Test if Zotero desktop local API is reachable |
 | `ZoteroDualClient` | Dual-API wrapper — local reads, web writes, auto-fallback |
-| `safe_api_call(func)` | Execute an API call with automatic rate-limit backoff |
+| `safe_api_call(func)` | API call wrapper with automatic rate-limit backoff |
 
 ---
 
-## Usage Examples
+## Usage Examples / 使用範例
 
-### Read items
+### Read items / 讀取項目
 
 ```python
 from pyzotero import zotero
@@ -199,7 +228,7 @@ for item in items:
     print(item["data"]["title"])
 ```
 
-### Create a journal article
+### Create a journal article / 新增期刊論文
 
 ```python
 template = zot.item_template("journalArticle")
@@ -211,7 +240,7 @@ template["DOI"] = "10.1038/s42256-025-00001-1"
 resp = zot.create_items([template])
 ```
 
-### Add a child note
+### Add a child note / 新增子筆記
 
 ```python
 parent_key = "ABC12345"
@@ -221,7 +250,7 @@ note_template["note"] = "<p>Key findings: Model achieves 95% accuracy on benchma
 zot.create_items([note_template])
 ```
 
-### Search by tag
+### Search by tag / 依標籤搜尋
 
 ```python
 items = zot.items(tag="machine-learning", limit=25)
@@ -229,7 +258,7 @@ for item in items:
     print(f"{item['data']['title']} — {item['data'].get('date', 'n.d.')}")
 ```
 
-### Use ZoteroDualClient (recommended)
+### Use ZoteroDualClient (recommended / 建議方式)
 
 ```python
 import sys
@@ -245,15 +274,17 @@ dual.create_note("I3P2J58S", "Section 2", "<p>Discusses PMT framework.</p>")
 
 ---
 
-## Requirements
+## Requirements / 環境需求
 
 - **Python** 3.10+
 - **pyzotero** (`pip install pyzotero`)
-- A **Zotero account** with an API key (free at [zotero.org](https://www.zotero.org))
+- A **Zotero account** with an API key — free at [zotero.org](https://www.zotero.org)
+  **Zotero 帳號** 及 API 金鑰（免費）
 - *(Optional)* **Zotero desktop app** — enables local API reads for faster performance
+  *（選用）* **Zotero 桌面版** — 啟用本地 API 讀取，效能更佳
 
 ---
 
-## License
+## License / 授權
 
 MIT
