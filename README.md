@@ -79,15 +79,19 @@ cp config.example.json config.json
 
 ### Installation
 
-**Global (all projects):**
+Install via the [`ai-research-skills` Claude Code marketplace](https://github.com/WenyuChiou/ai-research-skills):
+
 ```bash
-cp -r zotero-skills/ ~/.claude/skills/zotero-skills/
+claude plugin marketplace add WenyuChiou/ai-research-skills
+claude plugin install zotero-skills@ai-research-skills --scope user
 ```
 
-**Project-level:**
-```bash
-cp -r zotero-skills/ your-project/.claude/skills/zotero-skills/
-```
+> **Migrating from a previous `cp -r` / `git clone` install?** SKILL.md
+> moved from the repo root to `skills/zotero-skills/SKILL.md` for
+> marketplace auto-discovery. The old `cp -r zotero-skills/ ~/.claude/skills/zotero-skills/`
+> layout no longer loads (Claude Code scans only one level deep).
+> Remove the old copy (`rm -rf ~/.claude/skills/zotero-skills`) and
+> run the marketplace install above.
 
 ---
 

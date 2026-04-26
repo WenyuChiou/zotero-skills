@@ -79,15 +79,21 @@ cp config.example.json config.json
 
 ### 安裝方式
 
-**全域安裝（所有專案）：**
+從 [`ai-research-skills` Claude Code marketplace](https://github.com/WenyuChiou/ai-research-skills) 裝：
+
 ```bash
-cp -r zotero-skills/ ~/.claude/skills/zotero-skills/
+claude plugin marketplace add WenyuChiou/ai-research-skills
+claude plugin install zotero-skills@ai-research-skills
 ```
 
-**專案層級：**
-```bash
-cp -r zotero-skills/ your-project/.claude/skills/zotero-skills/
-```
+預設安裝到 user scope（這個 OS 使用者帳號全域可用、跨所有 project）。
+要只裝在當下 project 加 `--scope project`。
+
+> **之前用 `cp -r` / `git clone` 裝的？** SKILL.md 為了符合 marketplace
+> 規範已從 root 搬到 `skills/zotero-skills/SKILL.md`，舊的
+> `cp -r zotero-skills/ ~/.claude/skills/zotero-skills/` layout 不會
+> 載入（Claude Code 的 user-skills loader 只掃一層）。請刪掉舊的
+> （`rm -rf ~/.claude/skills/zotero-skills`）改走上面 marketplace 安裝。
 
 ---
 
