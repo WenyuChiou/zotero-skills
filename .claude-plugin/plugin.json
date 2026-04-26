@@ -8,6 +8,13 @@
   "homepage": "https://github.com/WenyuChiou/zotero-skills",
   "repository": "https://github.com/WenyuChiou/zotero-skills",
   "license": "MIT",
-  "keywords": ["zotero", "research", "citations", "literature-management"],
-  "skills": ["./"]
+  "keywords": [
+    "zotero",
+    "research",
+    "citations",
+    "literature-management"
+  ],
+  "skills": [
+    "."
+  ]
 }
