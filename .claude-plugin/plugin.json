@@ -1,0 +1,13 @@
+{
+  "name": "zotero-skills",
+  "description": "Full Zotero CRUD: search, add, update, delete items with notes, tags, collections, and PDF attachments. Dual local/Web API routing.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Wenyu Chiou"
+  },
+  "homepage": "https://github.com/WenyuChiou/zotero-skills",
+  "repository": "https://github.com/WenyuChiou/zotero-skills",
+  "license": "MIT",
+  "keywords": ["zotero", "research", "citations", "literature-management"],
+  "skills": ["./"]
+}
