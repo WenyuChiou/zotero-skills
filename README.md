@@ -4,6 +4,8 @@
 
 Comprehensive Zotero library management via dual-API architecture (local read + web write). Works with any AI coding assistant that supports skills or custom instructions.
 
+> 📚 Part of the [**agentic AI learning roadmap**](https://github.com/WenyuChiou/awesome-agentic-ai-zh) — a 7-stage curated path for building agentic AI, multilingual (zh-TW · zh-CN · English). This skill is referenced in §13 (research workflow skills).
+
 ---
 
 ## Overview
