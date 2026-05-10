@@ -1,8 +1,10 @@
-# Zotero Write API Reference
+# Zotero Web API Reference (deep-dive supplement)
 
-Detailed reference for the Zotero Web API write operations.
+Pair with `create-operations.md` / `update-operations.md` / `delete-operations.md` for the day-to-day pyzotero patterns. This file covers the underlying raw HTTP shapes plus the collection-membership operations that don't fit cleanly into a single CRUD verb.
 
-## API Endpoint
+## Raw create request body
+
+When you need to bypass `pyzotero` and POST directly:
 
 ```
 POST https://api.zotero.org/users/{userID}/items
@@ -10,9 +12,7 @@ Content-Type: application/json
 Zotero-API-Key: {apiKey}
 ```
 
-## Creating Items
-
-### Request Body Format
+Body:
 
 ```json
 {
@@ -21,11 +21,7 @@ Zotero-API-Key: {apiKey}
       "itemType": "journalArticle",
       "title": "Paper Title",
       "creators": [
-        {
-          "creatorType": "author",
-          "firstName": "First",
-          "lastName": "Last"
-        }
+        {"creatorType": "author", "firstName": "First", "lastName": "Last"}
       ],
       "abstractNote": "Abstract text",
       "publicationTitle": "Journal Name",
@@ -36,70 +32,31 @@ Zotero-API-Key: {apiKey}
       "DOI": "10.1037/h0043158",
       "ISSN": "",
       "url": "",
-      "tags": [
-        {"tag": "Task-050"},
-        {"tag": "Memory"}
-      ],
+      "tags": [{"tag": "Task-050"}, {"tag": "Memory"}],
       "relations": {},
       "notes": [
-        {
-          "itemType": "note",
-          "note": "<p>Note content in HTML</p>"
-        }
+        {"itemType": "note", "note": "<p>Note content in HTML</p>"}
       ]
     }
   ]
 }
 ```
 
-### Response
+Success response (`201 Created`):
 
-Success (201 Created):
 ```json
 {
   "successful": {
-    "0": {
-      "key": "XNCU5J2T",
-      "version": 1234,
-      "data": { ... }
-    }
+    "0": {"key": "XNCU5J2T", "version": 1234, "data": {...}}
   },
   "unchanged": {},
   "failed": {}
 }
 ```
 
-## pyzotero Methods
+## Add a child note via the template (alternative to `add_note`)
 
-### Get Item Template
-
-```python
-template = zot.item_template("journalArticle")
-# Returns dict with all available fields for item type
-```
-
-### Create Items
-
-```python
-response = zot.create_items([item1, item2, ...])
-# Maximum 50 items per request
-```
-
-### Update Item
-
-```python
-item = zot.item("ITEMKEY")
-item["data"]["title"] = "New Title"
-zot.update_item(item)
-```
-
-### Delete Item
-
-```python
-zot.delete_item(item)  # Moves to trash
-```
-
-### Add Child Note
+The shared client's `add_note(zot, item_key, content)` helper is the recommended path. If you need to control more fields:
 
 ```python
 note = zot.item_template("note")
@@ -108,52 +65,20 @@ note["parentItem"] = "PARENTKEY"
 zot.create_items([note])
 ```
 
-## Collections
+## Collection-membership operations
 
-### Create Collection
-
-```python
-new_col = {
-    "name": "Reinforcement-Learning",
-    "parentCollection": "4EM52NPV",  # Parent key, or False for root-level
-}
-result = zot.create_collections([new_col])
-col_key = list(result["successful"].values())[0]["key"]
-```
-
-### List Collections
+`create-operations.md` covers assigning a collection at creation time and `update-operations.md` covers the simple `.append()` move. Less common patterns:
 
 ```python
+# List all collections (with parent info)
 cols = zot.collections()
 for c in cols:
     parent = c["data"].get("parentCollection", "ROOT")
     print(f"{c['key']}: {c['data']['name']} (parent: {parent})")
 ```
 
-### Assign Item to Collection at Creation
-
 ```python
-template = zot.item_template("journalArticle")
-template["title"] = "Paper Title"
-# ... other fields ...
-template["collections"] = ["COL_KEY_1", "COL_KEY_2"]  # Assign before creating
-response = zot.create_items([template])
-```
-
-### Assign Existing Item to Collection
-
-```python
-item = zot.item("ITEM_KEY")
-current = item["data"].get("collections", [])
-if "NEW_COL_KEY" not in current:
-    current.append("NEW_COL_KEY")
-    item["data"]["collections"] = current
-    zot.update_item(item)
-```
-
-### Remove Item from Collection
-
-```python
+# Remove an item from a collection (preserves all other collection memberships)
 item = zot.item("ITEM_KEY")
 cols = item["data"].get("collections", [])
 cols.remove("COL_KEY_TO_REMOVE")
@@ -161,50 +86,31 @@ item["data"]["collections"] = cols
 zot.update_item(item)
 ```
 
-### Check Item's Collections
-
 ```python
+# Check which collections an item belongs to
 item = zot.item("ITEM_KEY")
-print(item["data"].get("collections", []))  # Returns list of collection keys
+print(item["data"].get("collections", []))  # list of collection keys
 ```
 
-### Get Items in a Collection
-
 ```python
+# Get items in a collection (alternative to the direct HTTP read in read-operations.md)
 items = zot.collection_items("COL_KEY")
 for item in items:
     print(f"{item['key']}: {item['data']['title']}")
 ```
 
-## Item Types
+## Creator types
 
 | Type | Description |
-|------|-------------|
-| `journalArticle` | Journal paper |
-| `book` | Book |
-| `bookSection` | Chapter in book |
-| `conferencePaper` | Conference paper |
-| `thesis` | PhD/Master thesis |
-| `preprint` | Preprint (arXiv, etc.) |
-| `webpage` | Web page |
-| `report` | Technical report |
-| `note` | Standalone or child note |
-
-## Creator Types
-
-| Type | Description |
-|------|-------------|
+|---|---|
 | `author` | Paper author |
-| `editor` | Book/journal editor |
+| `editor` | Book / journal editor |
 | `translator` | Translator |
 | `contributor` | General contributor |
 
-## Rate Limits
+For full item-type schemas (`journalArticle`, `book`, `conferencePaper`, etc. with their field lists), see `item-types.md`.
 
-- 100 requests per 10 seconds per API key
-- Batch operations recommended (up to 50 items per request)
+## Upstream references
 
-## References
-
-- Official Docs: https://www.zotero.org/support/dev/web_api/v3/write_requests
-- pyzotero: https://pyzotero.readthedocs.io/
+- Zotero Web API v3 write spec: <https://www.zotero.org/support/dev/web_api/v3/write_requests>
+- pyzotero: <https://pyzotero.readthedocs.io/>
