@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .claude/
 config.json
+.env
+.audit/
+.ai/

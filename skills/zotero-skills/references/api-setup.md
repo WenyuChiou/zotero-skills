@@ -21,9 +21,9 @@ This skill routes operations through two APIs automatically:
 ## Getting API Credentials
 
 1. Go to [zotero.org/settings/keys](https://www.zotero.org/settings/keys)
-2. Click **"Create new private key"** — enable **Library Read/Write** and **Allow write access**
+2. Click **"Create new private key"**. Grant the **least privilege** that your use needs — for read-only workflows do **not** enable write; scope the key to a single library/group where possible rather than granting access to all libraries. Enable write access only if you will create/update/delete.
 3. Copy the key and your **Library ID** (shown on the same page)
-4. Store in `config.json` (see `config.example.json` for format) or environment variables:
+4. **Preferred:** store credentials in **environment variables** or `~/.claude/.env` (never commit them):
 
 ```bash
 export ZOTERO_API_KEY="your_key_here"
@@ -31,11 +31,15 @@ export ZOTERO_LIBRARY_ID="your_library_id"
 export ZOTERO_LIBRARY_TYPE="user"
 ```
 
+   The shared client resolves credentials in this order: **env vars → `~/.claude/.env` → `config.json`**.
+   `config.json` is a **deprecated** fallback (emits a `DeprecationWarning`); if you use it, keep it
+   gitignored and `chmod 600`. Never place a real key in any committed file.
+
 ## Using the Shared Client
 
 ```python
-import sys
-sys.path.insert(0, r"~/.claude/skills/zotero-skills/scripts")
+import os, sys
+sys.path.insert(0, os.path.expanduser("~/.claude/skills/zotero-skills/scripts"))
 from zotero_client import get_client, get_collection, add_note, check_duplicate, ZoteroDualClient
 
 # Option A: Web API client (for writes)
@@ -55,6 +59,6 @@ dual.create_note("ITEM_KEY", "Section", "Notes...")  # always web API
 | `get_collection(name)` | Find collection key by display name from `config.json` |
 | `add_note(zot, item_key, content)` | Attach a child note to a library item |
 | `check_duplicate(zot, title, doi)` | Check if item with given title or DOI exists |
-| `check_local_api(timeout)` | Test if Zotero desktop local API is reachable |
+| `check_local_api(timeout, library_id)` | Test if Zotero desktop local API is reachable |
 | `ZoteroDualClient` | Dual-API wrapper with auto-fallback |
 | `safe_api_call(func)` | Wrapper with automatic rate-limit backoff |

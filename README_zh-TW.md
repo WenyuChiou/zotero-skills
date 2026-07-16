@@ -4,6 +4,8 @@
 
 透過雙 API 架構（本地讀取 + Web 寫入）對 Zotero 文獻庫進行完整管理。相容任何支援技能（skills）或自訂指令的 AI 程式助理。
 
+> 📚 屬於 [**agentic AI 學習路線圖**](https://github.com/WenyuChiou/awesome-agentic-ai-zh) 的一環 — 一條 7 階段、精選的 agentic AI 建構路徑，支援多語（zh-TW · zh-CN · English）。本技能收錄於 §13（研究工作流技能）。
+
 ---
 
 ## 概覽
@@ -114,19 +116,21 @@ claude plugin install zotero-skills@ai-research-skills
 ## 目錄結構
 
 ```
-~/.claude/skills/zotero-skills/        # 全域安裝路徑
-├── SKILL.md              # AI 助理的完整 CRUD 指令參考
-├── config.example.json   # API 憑證模板
-├── config.json           # 你的憑證（已 gitignore）
+zotero-skills/
+├── .claude-plugin/plugin.json   # Marketplace 資訊清單
+├── config.example.json          # API 憑證模板
+├── config.json                  # 你的憑證（已 gitignore，永不提交）
+├── requirements.txt             # pyzotero 相依
+├── LICENSE                      # MIT
 ├── scripts/
-│   ├── zotero_client.py  # ZoteroDualClient + 輔助函式
-│   └── add_literature.py # 批次匯入腳本
-├── references/
-│   ├── api-reference.md  # Zotero API 端點文檔
-│   └── item-types.md     # 所有項目類型的 JSON 模板
-├── docs/                 # 範例截圖
-├── README.md             # English
-└── README_zh-TW.md       # 繁體中文
+│   ├── zotero_client.py         # ZoteroDualClient + 輔助函式
+│   └── add_literature.py        # 批次匯入腳本模板
+├── skills/zotero-skills/
+│   ├── SKILL.md                 # Agent 操作規則
+│   └── references/              # api-setup、read/create/update/delete-operations、
+│       └── ...                  # error-handling、endpoint-cheatsheet、api-reference、item-types
+├── README.md                    # English
+└── README_zh-TW.md              # 繁體中文
 ```
 
 ---
@@ -140,7 +144,7 @@ Zotero 提供兩個 API 介面，本技能自動路由。
 | **存取條件** | 需 Zotero 桌面版執行 | 任何環境皆可 |
 | **讀取** | ✅ 快速、支援全文搜尋 | ✅ 標準查詢 |
 | **寫入** | ❌ 不支援（回傳 `501`） | ✅ 完整 CRUD |
-| **速率限制** | 無 | 每 10 秒約 50 次請求 |
+| **速率限制** | 無 | 每 10 秒約 100 次請求（動態；請遵循 `Backoff`/`Retry-After` 標頭） |
 | **驗證方式** | `Zotero-Allowed-Request: true` header | `Zotero-API-Key: <key>` header |
 
 ### 健康檢查與自動降級
@@ -177,7 +181,7 @@ dual.create_note("ITEM_KEY", "Section", "Notes...")  # 一律走 Web API
 | `get_collection(name)` | 從 `config.json` 以顯示名稱查找集合金鑰 |
 | `add_note(zot, item_key, content)` | 為文獻項目附加子筆記 |
 | `check_duplicate(zot, title, doi)` | 檢查指定標題或 DOI 的項目是否已存在 |
-| `check_local_api(timeout)` | 測試 Zotero 桌面版本地 API 是否可達 |
+| `check_local_api(timeout, library_id)` | 測試 Zotero 桌面版本地 API 是否可達 |
 | `ZoteroDualClient` | 雙 API 包裝器 — 本地讀取、Web 寫入、自動降級 |
 | `safe_api_call(func)` | API 呼叫包裝器，自動處理速率限制退避 |
 
@@ -188,8 +192,8 @@ dual.create_note("ITEM_KEY", "Section", "Notes...")  # 一律走 Web API
 ### ZoteroDualClient（建議方式）
 
 ```python
-import sys
-sys.path.insert(0, r"~/.claude/skills/zotero-skills/scripts")
+import os, sys
+sys.path.insert(0, os.path.expanduser("~/.claude/skills/zotero-skills/scripts"))
 from zotero_client import ZoteroDualClient
 dual = ZoteroDualClient()
 print(f"本地 API 可用: {dual.local_available}")

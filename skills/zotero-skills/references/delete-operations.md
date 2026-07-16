@@ -2,26 +2,35 @@
 
 The local API does NOT support DELETE (returns 501). All deletion goes through the Web API.
 
+> ⚠️ **`delete_item` is PERMANENT, not trash.** Empirically verified against the live
+> Zotero Web API: `DELETE /items/KEY` removes the item outright (a subsequent GET
+> returns 404 and the item is **not** in the trash). This contradicts the older belief
+> that the API "moves to trash" — it does not. For a **recoverable** removal use the
+> shared client's `trash_item()` (which sets `deleted=1` via PATCH); items in the trash
+> are auto-purged after ~30 days and can be restored until then.
+
 ```python
-# Move single item to trash
-item = zot.item("ITEM_KEY")
-zot.delete_item(item)  # moves to trash, recoverable for 30 days
+from zotero_client import ZoteroDualClient
+dual = ZoteroDualClient()
 
-# Delete a note
-note = zot.item("NOTE_KEY")
-zot.delete_item(note)
+# RECOVERABLE — move to trash (preferred default)
+dual.trash_item("ITEM_KEY")          # sets deleted=1; restorable for ~30 days
+dual.trash_items(["K1", "K2"])
 
-# Delete a collection (items inside are NOT deleted)
-collection = zot.collection("COLLECTION_KEY")
-zot.delete_collection(collection)
+# PERMANENT — irreversible, does NOT go to trash. Confirm the exact keys first.
+dual.delete_item("ITEM_KEY")
+dual.delete_items(["K1", "K2"])      # deletes per-item, each with its own fresh version (ZOT-COR-025)
 
-# Batch delete items by tag
-items = zot.items(tag="TO-DELETE", limit=50)
-if items:
-    zot.delete_item(items)  # accepts list of item dicts
+# Delete a collection (items inside are NOT deleted, just unfiled)
+dual.delete_collection("COLLECTION_KEY")
 ```
 
-> Permanent deletion from trash is only available via Zotero desktop UI (right-click → "Delete Permanently"). Items in trash are auto-purged after 30 days.
+Raw pyzotero (note the same permanence):
+
+```python
+item = zot.item("ITEM_KEY")
+zot.delete_item(item)  # PERMANENT — not recoverable via the API
+```
 
 ## Safety patterns
 
