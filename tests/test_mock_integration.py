@@ -166,14 +166,17 @@ def test_delete_item_uses_web_delete_not_patch(monkeypatch, fake_pyzotero):
     assert any(c[0] == "delete_item" for c in dual.web.calls)
 
 
-def test_delete_items_chunks_by_50(monkeypatch, fake_pyzotero):
-    # ZOT-COR-013
+def test_delete_items_deletes_per_item(monkeypatch, fake_pyzotero):
+    # ZOT-COR-025: delete per-item (each with its OWN fresh version) rather than
+    # pyzotero's batch delete, which 412s on a library-version precondition mismatch.
     dual = _dual(monkeypatch, local_available=False)
-    keys = [f"K{i}" for i in range(120)]
+    keys = [f"K{i}" for i in range(5)]
     dual.delete_items(keys)
+    # one fresh web read + one single delete per key; never a list payload
     del_calls = [c for c in dual.web.calls if c[0] == "delete_item"]
-    assert len(del_calls) == 3
-    assert [len(c[1][0]) for c in del_calls] == [50, 50, 20]
+    assert len(del_calls) == 5
+    assert all(not isinstance(c[1][0], list) for c in del_calls)   # single item, not a batch list
+    assert len([c for c in dual.web.calls if c[0] == "item"]) == 5
 
 
 def test_create_items_surfaces_failed_bucket(monkeypatch, fake_pyzotero):
