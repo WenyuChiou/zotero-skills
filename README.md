@@ -55,29 +55,38 @@ See [Features](#features) below for the full list.
 
 ### API Credentials
 
-1. **API Key** — Generate at [https://www.zotero.org/settings/keys](https://www.zotero.org/settings/keys). Enable "Allow library access" and "Allow write access".
+1. **API Key** — Generate at [https://www.zotero.org/settings/keys](https://www.zotero.org/settings/keys). Grant the **least privilege** you need — enable write access only if you will create / update / delete.
 2. **Library ID** — Found on the same page under "Your userID for use in API calls"
 
-### Configuration
+### Configuration — recommended: one `.env` file
 
-Copy `config.example.json` to `config.json` and fill in your credentials:
+The shared client resolves credentials in this order: **environment variables → `~/.claude/.env` → `config.json`**. The simplest, safest way is a single file — create **`~/.claude/.env`** and paste three lines:
 
 ```bash
-cp config.example.json config.json
+ZOTERO_API_KEY=your_key_here
+ZOTERO_LIBRARY_ID=your_library_id
+ZOTERO_LIBRARY_TYPE=user
+```
+
+That's it — no code, works everywhere, and nothing to commit. (Setting the same three as shell environment variables works too.)
+
+> ⚠️ **A stale OS-level `ZOTERO_API_KEY` overrides `~/.claude/.env`** (environment wins). If a new key seems ignored, check for a leftover one — PowerShell: `$Env:ZOTERO_API_KEY` · bash: `echo $ZOTERO_API_KEY` — and remove it.
+
+<details>
+<summary><b>Legacy alternative: <code>config.json</code> (deprecated)</b></summary>
+
+`config.json` still works but is **deprecated** — it emits a `DeprecationWarning` at runtime. It is gitignored so it is never committed. Prefer `~/.claude/.env`; use this only if you cannot set env vars:
+
+```bash
+cp config.example.json config.json   # then fill in your key + library id
 ```
 
 ```json
-{
-  "zotero_api_key": "YOUR_API_KEY",
-  "zotero_library_id": "YOUR_LIBRARY_ID",
-  "zotero_library_type": "user",
-  "collections": {
-    "my_collection": "COLLECTION_KEY"
-  }
-}
+{ "zotero_api_key": "YOUR_API_KEY", "zotero_library_id": "YOUR_LIBRARY_ID", "zotero_library_type": "user" }
 ```
 
-> **Note:** `config.json` is gitignored to protect your API key. Never commit credentials.
+**Never commit credentials.**
+</details>
 
 ### Installation
 

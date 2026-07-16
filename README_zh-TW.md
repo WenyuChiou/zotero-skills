@@ -55,29 +55,38 @@
 
 ### API 憑證
 
-1. **API 金鑰** — 至 [https://www.zotero.org/settings/keys](https://www.zotero.org/settings/keys) 產生，勾選 Allow library access 和 Allow write access
+1. **API 金鑰** — 至 [https://www.zotero.org/settings/keys](https://www.zotero.org/settings/keys) 產生。只勾選**你需要的最小權限**——會建立／更新／刪除時才勾寫入權限。
 2. **Library ID** — 同一頁面下方「Your userID for use in API calls」
 
-### 設定檔
+### 設定憑證 — 建議：一個 `.env` 檔
 
-將 `config.example.json` 複製為 `config.json`，填入你的憑證：
+共用 client 讀取憑證的優先序是：**環境變數 → `~/.claude/.env` → `config.json`**。最簡單也最安全的方式是一個檔案——建立 **`~/.claude/.env`**，貼入三行：
 
 ```bash
-cp config.example.json config.json
+ZOTERO_API_KEY=你的金鑰
+ZOTERO_LIBRARY_ID=你的library_id
+ZOTERO_LIBRARY_TYPE=user
+```
+
+這樣就好——不用寫程式、全域生效、也沒有東西要提交。（把這三個設成 shell 環境變數也可以。）
+
+> ⚠️ **OS 層級的舊 `ZOTERO_API_KEY` 環境變數會蓋過 `~/.claude/.env`**（環境變數優先）。若新金鑰似乎沒生效，先檢查是否有殘留的舊值——PowerShell：`$Env:ZOTERO_API_KEY`；bash：`echo $ZOTERO_API_KEY`——並移除它。
+
+<details>
+<summary><b>舊方式（已棄用）：<code>config.json</code></b></summary>
+
+`config.json` 仍可用，但**已棄用**——執行時會發出 `DeprecationWarning`。它已加入 gitignore，不會被提交。建議改用 `~/.claude/.env`；只有在無法設定環境變數時才用這個：
+
+```bash
+cp config.example.json config.json   # 然後填入你的金鑰與 library id
 ```
 
 ```json
-{
-  "zotero_api_key": "YOUR_API_KEY",
-  "zotero_library_id": "YOUR_LIBRARY_ID",
-  "zotero_library_type": "user",
-  "collections": {
-    "my_collection": "COLLECTION_KEY"
-  }
-}
+{ "zotero_api_key": "YOUR_API_KEY", "zotero_library_id": "YOUR_LIBRARY_ID", "zotero_library_type": "user" }
 ```
 
-> **注意：** `config.json` 已加入 gitignore，不會被推送。切勿提交含有 API 金鑰的檔案。
+**切勿提交含有 API 金鑰的檔案。**
+</details>
 
 ### 安裝方式
 
