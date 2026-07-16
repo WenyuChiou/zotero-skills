@@ -1,6 +1,6 @@
 ---
 name: zotero-skills
-description: "Full CRUD operations on Zotero library — search, add, update, delete items with notes, tags, collections, and PDF attachments. Uses dual-API architecture (local API for fast reads, Web API for writes). Use this skill whenever the user mentions Zotero, references, citations, literature management, reading notes, or wants to organize academic papers — even if they don't explicitly say 'Zotero'."
+description: "Full CRUD operations on Zotero library — search, add, update, delete items with notes, tags, and collections (PDF upload is available via raw pyzotero, see references/create-operations.md). Uses dual-API architecture (local API for fast reads, Web API for writes). Use this skill whenever the user mentions Zotero, references, citations, literature management, reading notes, or wants to organize academic papers — even if they don't explicitly say 'Zotero'."
 license: MIT
 ---
 

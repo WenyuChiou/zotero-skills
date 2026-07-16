@@ -140,3 +140,11 @@ def test_add_note_preserves_existing_html():
     created = [c for c in z.calls if c[0] == "create_items"][0]
     note = created[1][0][0]
     assert note["note"] == "<p>already</p>"
+
+
+def test_add_note_surfaces_write_failure():
+    # Must not silently swallow a rejected item (parity with create_* / ZOT-SILENT-007).
+    z = FakeZotero()
+    z._create_failed = {"0": {"code": 400, "message": "bad"}}
+    with pytest.raises(zc.ZoteroWriteError):
+        zc.add_note(z, "PARENT01", "x")
