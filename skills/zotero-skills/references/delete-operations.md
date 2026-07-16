@@ -19,7 +19,7 @@ dual.trash_items(["K1", "K2"])
 
 # PERMANENT — irreversible, does NOT go to trash. Confirm the exact keys first.
 dual.delete_item("ITEM_KEY")
-dual.delete_items(["K1", "K2"])      # chunked by 50
+dual.delete_items(["K1", "K2"])      # deletes per-item, each with its own fresh version (ZOT-COR-025)
 
 # Delete a collection (items inside are NOT deleted, just unfiled)
 dual.delete_collection("COLLECTION_KEY")
