@@ -197,18 +197,19 @@ def get_collection(name: str) -> str:
 
 
 def add_note(zot, item_key: str, content: str) -> bool:
-    """Add a note to an existing Zotero item. Auto-wraps plain text in <p> tags."""
+    """Add a note to an existing Zotero item. Auto-wraps plain text in <p> tags.
+
+    Surfaces write failures (raises ``ZoteroWriteError`` on a rejected item) rather
+    than silently returning False — consistent with the client's create_* methods
+    (ZOT-SILENT-007). Let API/network errors propagate to the caller."""
     note = zot.item_template("note")
     if not content.strip().startswith("<"):
         content = f"<p>{content}</p>"
     note["note"] = content
     note["parentItem"] = item_key
-    try:
-        r = zot.create_items([note])
-        return bool(r.get("successful"))
-    except Exception as e:
-        print(f"  Note error for {item_key}: {e}")
-        return False
+    r = zot.create_items([note])
+    _raise_on_write_failure(r)
+    return bool(r.get("successful"))
 
 
 def check_duplicate(zot, title: str, doi: str = "") -> bool:

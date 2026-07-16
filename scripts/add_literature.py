@@ -188,6 +188,9 @@ def add_note(zot, item_key: str, content: str) -> bool:
         if response.get("successful"):
             print(f"       Note added to {item_key}")
             return True
+        # Surface, don't swallow, a rejected item (parity with the shared client).
+        if response.get("failed"):
+            print(f"       Note FAILED for {item_key}: {response['failed']}")
         return False
     except Exception as e:
         print(f"       Note error: {e}")
