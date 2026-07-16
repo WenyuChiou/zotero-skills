@@ -498,14 +498,13 @@ class ZoteroDualClient:
         return self.web.delete_item(item)
 
     def delete_items(self, keys: list):
-        """PERMANENTLY delete items (NOT recoverable). Chunked by 50 (ZOT-COR-013).
-        Prefer ``trash_items`` for a recoverable removal."""
+        """PERMANENTLY delete items (NOT recoverable). Deletes PER ITEM so each uses
+        its own fresh version. pyzotero's batch ``delete_item(list)`` sends the first
+        item's version as a *library*-level ``If-Unmodified-Since-Version`` and 412s
+        as soon as items have differing versions (ZOT-COR-025, seen in real-API
+        testing). Prefer ``trash_items`` for a recoverable removal."""
         self._require_web()
-        results = []
-        for i in range(0, len(keys), 50):
-            batch = [self._web_item(k) for k in keys[i:i + 50]]
-            results.append(self.web.delete_item(batch))
-        return results
+        return [self.delete_item(k) for k in keys]
 
     def delete_collection(self, collection_key):
         self._require_web()
