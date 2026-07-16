@@ -25,7 +25,7 @@ Dual-API CRUD for a Zotero library: search / read via the local desktop API, wri
 - **Refuse whole-library operations from an empty or wildcard query/filter.** An empty query, `*`, or a blank filter must never trigger an operation across the entire library.
 - **Group / shared libraries are stricter.** For group libraries, always confirm before any write and never batch-delete.
 - **Trash vs permanent.** Default to `trash_item()` (recoverable — sets `deleted=1`). `delete_item()` is **PERMANENT** and does NOT go to the trash (verified against the live API), so use it only on explicit confirmation and state clearly that it is irreversible.
-- **Read back after every write** and confirm the change matches intent; on partial batch failure, stop and report rather than retrying blindly (avoid duplicate writes).
+- **Read back after every write** and confirm the change matches intent — read back via the **Web API** (or allow a brief delay before a local-API read-back), since the local desktop cache can lag a just-completed web write. On partial batch failure, stop and report rather than retrying blindly (avoid duplicate writes).
 
 ## When to use
 
