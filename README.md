@@ -114,19 +114,21 @@ This skill was developed for Claude Code but works with any AI assistant.
 ## Project Structure
 
 ```
-~/.claude/skills/zotero-skills/        # Global install path
-├── SKILL.md              # Full CRUD reference for AI assistants
-├── config.example.json   # Template for API credentials
-├── config.json           # Your credentials (gitignored)
+zotero-skills/
+├── .claude-plugin/plugin.json   # Marketplace manifest
+├── config.example.json          # Template for API credentials
+├── config.json                  # Your credentials (gitignored — never committed)
+├── requirements.txt             # pyzotero dependency
+├── LICENSE                      # MIT
 ├── scripts/
-│   ├── zotero_client.py  # ZoteroDualClient + helpers
-│   └── add_literature.py # Batch import script
-├── references/
-│   ├── api-reference.md  # Zotero API endpoint docs
-│   └── item-types.md     # JSON templates for all item types
-├── docs/                 # Example screenshots
-├── README.md             # English
-└── README_zh-TW.md       # 繁體中文
+│   ├── zotero_client.py         # ZoteroDualClient + helpers
+│   └── add_literature.py        # Batch import script template
+├── skills/zotero-skills/
+│   ├── SKILL.md                 # Agent operating rules
+│   └── references/              # api-setup, read/create/update/delete-operations,
+│       └── ...                  # error-handling, endpoint-cheatsheet, api-reference, item-types
+├── README.md                    # English
+└── README_zh-TW.md              # 繁體中文
 ```
 
 ---
@@ -140,7 +142,7 @@ Zotero exposes two APIs with different capabilities. This skill routes automatic
 | **Access** | Requires Zotero desktop running | Works anywhere |
 | **Read** | ✅ Fast, full-text search | ✅ Standard queries |
 | **Write** | ❌ Not supported (`501`) | ✅ Full CRUD |
-| **Rate limit** | None | ~50 req / 10 sec |
+| **Rate limit** | None | ~100 req / 10 sec (dynamic; honor `Backoff`/`Retry-After` headers) |
 | **Auth** | `Zotero-Allowed-Request: true` header | `Zotero-API-Key: <key>` header |
 
 ### Health Check & Auto-Fallback
@@ -177,7 +179,7 @@ From `scripts/zotero_client.py`:
 | `get_collection(name)` | Find collection key by display name from `config.json` |
 | `add_note(zot, item_key, content)` | Attach a child note to a library item |
 | `check_duplicate(zot, title, doi)` | Check if item with given title or DOI exists |
-| `check_local_api(timeout)` | Test if Zotero desktop local API is reachable |
+| `check_local_api(timeout, library_id)` | Test if Zotero desktop local API is reachable |
 | `ZoteroDualClient` | Dual-API wrapper — local reads, web writes, auto-fallback |
 | `safe_api_call(func)` | API call wrapper with automatic rate-limit backoff |
 
@@ -188,8 +190,8 @@ From `scripts/zotero_client.py`:
 ### ZoteroDualClient (recommended)
 
 ```python
-import sys
-sys.path.insert(0, r"~/.claude/skills/zotero-skills/scripts")
+import os, sys
+sys.path.insert(0, os.path.expanduser("~/.claude/skills/zotero-skills/scripts"))
 from zotero_client import ZoteroDualClient
 dual = ZoteroDualClient()
 print(f"Local API available: {dual.local_available}")

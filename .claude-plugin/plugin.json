@@ -1,7 +1,7 @@
 {
   "name": "zotero-skills",
   "description": "Full Zotero CRUD: search, add, update, delete items with notes, tags, collections, and PDF attachments. Dual local/Web API routing.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": {
     "name": "Wenyu Chiou"
   },
