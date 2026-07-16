@@ -1,0 +1,2 @@
+# Runtime dependency for zotero-skills (Python 3.10+)
+pyzotero>=1.5
