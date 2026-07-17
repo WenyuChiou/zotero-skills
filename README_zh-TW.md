@@ -1,5 +1,8 @@
 # Zotero Skills — AI 程式助理的 Zotero CRUD 技能套件
 
+[![CI](https://github.com/WenyuChiou/zotero-skills/actions/workflows/ci.yml/badge.svg)](https://github.com/WenyuChiou/zotero-skills/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > [English](README.md)
 
 透過雙 API 架構（本地讀取 + Web 寫入）對 Zotero 文獻庫進行完整管理。相容任何支援技能（skills）或自訂指令的 AI 程式助理。

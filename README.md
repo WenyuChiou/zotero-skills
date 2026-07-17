@@ -1,5 +1,8 @@
 # Zotero Skills — AI Coding Assistant Skill for Zotero CRUD
 
+[![CI](https://github.com/WenyuChiou/zotero-skills/actions/workflows/ci.yml/badge.svg)](https://github.com/WenyuChiou/zotero-skills/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > [繁體中文版](README_zh-TW.md)
 
 Comprehensive Zotero library management via dual-API architecture (local read + web write). Works with any AI coding assistant that supports skills or custom instructions.
