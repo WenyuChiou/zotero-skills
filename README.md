@@ -19,6 +19,19 @@ See [Features](#features) below for the full list.
 
 ---
 
+## What It Can Do
+
+Beyond standard CRUD, this skill does four things an AI agent often wrongly calls impossible:
+
+- **Writes, even though the Zotero MCP server is read-only.** That MCP server is configured separately from this skill; writes go through the shared client's own Web API key instead, resolved from environment variables, then `~/.claude/.env`, then `config.json`. Call `credentials_status()` to check which one is set (booleans and a source label only, never the value) instead of opening those files yourself.
+- **Merge duplicate items**, even though the Web API has no merge endpoint: `ZoteroDualClient.merge_duplicates()` reproduces the core of a desktop merge (move every child, union collections/tags/relations, add a `dc:replaces` relation, then trash the duplicate, recoverable with `restore_item()`).
+- **Attach a PDF reliably**, even over a long Windows path with spaces, which can make pyzotero's `attachment_simple` fail silently. `ZoteroDualClient.attach_pdf()` copies to a short, safe, `zot_`-prefixed filename first and raises the failed-upload template pyzotero returns (it does not expose a deeper server reason) instead of staying silent.
+- **Guide the search for a missing PDF** instead of assuming a manual download: check Downloads and Zotero's storage folder, then, with the user's OK, a browser MCP in their logged-in session.
+
+See the capability table in `skills/zotero-skills/SKILL.md` for the full list and what each one does not cover.
+
+---
+
 ## Features
 
 ### Core CRUD Operations

@@ -109,3 +109,76 @@ def test_perm_warning_fires_for_world_readable_posix(tmp_path):
         warnings.simplefilter("always")
         zc._warn_if_world_readable(p)
     assert [x for x in w if "group/other-readable" in str(x.message)]
+
+
+# ---------------- credentials_status() (never leaks a secret value) ----------------
+_SECRETS = {"OSENVKEY", "ENVFILEKEY", "CFGKEY", "222", "333", "111", "9999999"}
+
+
+def _assert_no_secret_values(status: dict):
+    for v in status.values():
+        assert str(v) not in _SECRETS, f"credentials_status() leaked a value: {v!r}"
+
+
+def test_credentials_status_reports_env_source_no_values(monkeypatch, fake_config, env_file):
+    fake_config(zotero_api_key="CFGKEY", zotero_library_id="111")
+    env_file(ZOTERO_API_KEY="ENVFILEKEY", ZOTERO_LIBRARY_ID="222")
+    monkeypatch.setenv("ZOTERO_API_KEY", "OSENVKEY")
+    monkeypatch.setenv("ZOTERO_LIBRARY_ID", "333")
+
+    status = zc.credentials_status()
+    assert status["api_key_set"] is True
+    assert status["api_key_source"] == "env"
+    assert status["library_id_set"] is True
+    assert status["library_id_source"] == "env"
+    _assert_no_secret_values(status)
+
+
+def test_credentials_status_reports_dotenv_source(fake_config, env_file):
+    fake_config(zotero_api_key="CFGKEY", zotero_library_id="111")
+    env_file(ZOTERO_API_KEY="ENVFILEKEY", ZOTERO_LIBRARY_ID="222", ZOTERO_LIBRARY_TYPE="group")
+
+    status = zc.credentials_status()
+    assert status["api_key_source"] == "~/.claude/.env"
+    assert status["library_id_source"] == "~/.claude/.env"
+    assert status["library_type"] == "group"
+    assert status["dotenv_file_exists"] is True
+    _assert_no_secret_values(status)
+
+
+def test_credentials_status_reports_config_json_source(fake_config):
+    fake_config(zotero_api_key="CFGKEY", zotero_library_id="111")
+
+    status = zc.credentials_status()
+    assert status["api_key_source"] == "config.json"
+    assert status["library_id_source"] == "config.json"
+    assert status["config_json_exists"] is True
+    assert status["config_json_readable"] is True
+    _assert_no_secret_values(status)
+
+
+def test_credentials_status_reports_none_when_nothing_configured():
+    status = zc.credentials_status()
+    assert status["api_key_set"] is False
+    assert status["api_key_source"] == "none"
+    assert status["library_id_set"] is False
+    assert status["library_id_source"] == "none"
+    assert status["library_type"] == "user"
+    assert status["dotenv_file_exists"] is False
+    assert status["config_json_exists"] is False
+    _assert_no_secret_values(status)
+
+
+def test_credentials_status_library_type_matches_load_credentials_exactly(monkeypatch, env_file):
+    # _load_credentials() has a quirk: when api_key/lib_id need the
+    # ~/.claude/.env fallback, it ALSO re-resolves lib_type from that file,
+    # overriding an already-resolved, higher-precedence shell-env lib_type.
+    # credentials_status() must report whatever the real client will use,
+    # not an independently "clean" precedence that could disagree with it.
+    monkeypatch.setenv("ZOTERO_LIBRARY_TYPE", "group")
+    env_file(ZOTERO_API_KEY="K", ZOTERO_LIBRARY_ID="1", ZOTERO_LIBRARY_TYPE="user")
+
+    _, _, used_by_client = zc._load_credentials()
+    reported = zc.credentials_status()["library_type"]
+    assert reported == used_by_client
+    assert reported == "user"  # documents the current (quirky) precedence

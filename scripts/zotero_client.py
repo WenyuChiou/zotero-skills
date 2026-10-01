@@ -20,8 +20,10 @@ For dual-mode (local reads + web writes)::
 import json
 import os
 import re
+import shutil
 import stat
 import sys
+import tempfile
 import time
 import urllib.request
 import urllib.error
@@ -270,6 +272,173 @@ def _raise_on_write_failure(resp):
     return resp
 
 
+_SAFE_FILENAME_MAX_LEN = 40  # keeps the copied path short even under a long temp-dir prefix
+_SAFE_FILENAME_PREFIX = "zot_"
+_SAFE_EXTENSION_RE = re.compile(r"^\.[A-Za-z0-9]{1,8}$")
+
+
+def _safe_attachment_filename(original_name: str, override: str | None = None) -> str:
+    """Derive a short, space-free, collision-safe filename for a temp copy
+    used in PDF uploads.
+
+    pyzotero's ``attachment_simple`` can fail SILENTLY against a long Windows
+    path that contains spaces (ZOT-ATTACH-026) -- no exception, just an empty
+    ``{"failure": [...]}`` entry with no explanation. Copying the file to a
+    short, space-free name under a fresh temp directory sidesteps that failure
+    mode entirely, regardless of how long or space-filled the original path is.
+
+    Hardening (reviewer round 3):
+    - The extension is kept only if it looks like a real one
+      (``\\.[A-Za-z0-9]{1,8}``, e.g. ``.pdf``); a dotted but non-extension
+      tail such as ``paper.final version for submission to journal`` falls
+      back to ``.pdf`` instead of being treated as a 40-character extension.
+    - The stem always gets a ``zot_`` prefix, so it can never collide with a
+      Windows-reserved device name (``CON``, ``NUL``, ``PRN``, ``AUX``,
+      ``COM1``-``COM9``, ``LPT1``-``LPT9``), which is reserved regardless of
+      extension.
+    - Non-ASCII letters (e.g. CJK titles) are kept; only whitespace and
+      characters that are unsafe in a filename are stripped, so a non-Latin
+      title does not collapse into a generic "attachment" name.
+    """
+    base = override if override else original_name
+    base = base.strip()
+    suffix = Path(base).suffix
+    if not _SAFE_EXTENSION_RE.match(suffix):
+        suffix = ".pdf"
+    stem = Path(base).stem
+    stem = re.sub(r"\s+", "_", stem)      # no spaces
+    stem = re.sub(r"[^\w.-]", "", stem)   # drop anything unsafe; \w keeps non-ASCII letters
+    stem = stem or "attachment"
+    max_stem_len = max(1, _SAFE_FILENAME_MAX_LEN - len(suffix) - len(_SAFE_FILENAME_PREFIX))
+    return f"{_SAFE_FILENAME_PREFIX}{stem[:max_stem_len]}{suffix}"
+
+
+_LIBRARY_TYPE_PLURALS = {"user": "users", "group": "groups"}
+
+
+def _pluralize_library_type(library_type: str) -> str:
+    """Map a Zotero ``library_type`` to the real API path segment.
+
+    Real pyzotero's ``Zotero.__init__`` already stores the plural form on the
+    instance (``self.library_type = library_type + "s"``), so
+    ``self.web.library_type`` is normally already "users" or "groups" by the
+    time code here reads it, and a live merge confirmed the real shape is
+    ``http://zotero.org/users/<libraryID>/items/<key>`` for a user library
+    (``http://zotero.org/groups/...`` for a group one) -- never the singular
+    "user"/"group" (ZOT-MERGE-027). This maps a singular value defensively in
+    case one ever does reach here (e.g. a non-pyzotero web client or a test
+    double); anything already plural, or anything else, passes through
+    unchanged.
+    """
+    return _LIBRARY_TYPE_PLURALS.get(library_type, library_type)
+
+
+_DOI_PREFIX_RE = re.compile(r"^(?:https?://(?:dx\.)?doi\.org/|doi:\s*)", re.IGNORECASE)
+
+
+def _normalize_doi(doi: str) -> str:
+    """Normalize a DOI for equality comparison: strip, drop a leading
+    resolver URL (``https://doi.org/``, ``http://doi.org/``,
+    ``https://dx.doi.org/``, ``http://dx.doi.org/``, any case) or a
+    ``doi:`` prefix (any case, with or without a following space), then
+    lowercase what remains.
+
+    DOIs are case-insensitive and are routinely pasted with a resolver
+    prefix; comparing them raw (as before) refused merges of the same DOI
+    typed two different ways (reviewer rounds 3-4)."""
+    doi = (doi or "").strip()
+    doi = _DOI_PREFIX_RE.sub("", doi, count=1)
+    return doi.strip().lower()
+
+
+def _normalize_title(title: str) -> str:
+    """Normalize a title for a last-resort identity check when neither item
+    has a DOI: strip, lowercase, collapse internal whitespace."""
+    return re.sub(r"\s+", " ", (title or "").strip().lower())
+
+
+_YEAR_RE = re.compile(r"(\d{4})")
+
+
+def _extract_year(date_str: str) -> str:
+    """Pull a 4-digit year out of a Zotero ``date`` field (which can be as
+    messy as ``"May 2001"`` or as clean as ``"2001"``), or ``""`` if none
+    is found."""
+    m = _YEAR_RE.search(date_str or "")
+    return m.group(1) if m else ""
+
+
+def _first_creator_lastname(data: dict) -> str:
+    """Normalized last name of an item's first creator, or ``""`` if it has
+    none."""
+    creators = data.get("creators") or []
+    if not creators:
+        return ""
+    return (creators[0].get("lastName") or "").strip().lower()
+
+
+def credentials_status() -> dict:
+    """Report whether Zotero credentials are configured, and which layer
+    they came from, WITHOUT ever returning the API key, the library ID, or
+    any file contents. Safe to print or log.
+
+    Call this instead of opening ``~/.claude/.env`` or ``config.json``: an
+    agent that only checks the shell environment and finds nothing has not
+    checked ``~/.claude/.env`` or ``config.json``, and will wrongly conclude
+    writes are impossible (SKILL.md "Common false negatives" #1). This does
+    the same env > ``~/.claude/.env`` > ``config.json`` resolution as
+    ``_load_credentials()`` internally, and reports only booleans and a
+    source label per field.
+    """
+    env_api_key = os.environ.get("ZOTERO_API_KEY")
+    env_lib_id = os.environ.get("ZOTERO_LIBRARY_ID")
+
+    dotenv_values = _read_env_file()
+    dotenv_path = Path.home() / ".claude" / ".env"
+
+    cfg: dict = {}
+    config_readable = False
+    if _CONFIG_PATH.exists():
+        try:
+            cfg = _load_config()
+            config_readable = True
+        except (OSError, ValueError):
+            config_readable = False
+
+    def _resolve(env_val, dotenv_key, cfg_key):
+        if env_val:
+            return True, "env"
+        if dotenv_values.get(dotenv_key):
+            return True, "~/.claude/.env"
+        if cfg.get(cfg_key):
+            return True, "config.json"
+        return False, "none"
+
+    api_key_set, api_key_source = _resolve(env_api_key, "ZOTERO_API_KEY", "zotero_api_key")
+    library_id_set, library_id_source = _resolve(env_lib_id, "ZOTERO_LIBRARY_ID", "zotero_library_id")
+
+    # Delegate library_type to _load_credentials() itself rather than a
+    # hand-rolled precedence, so this always matches what ZoteroDualClient
+    # will actually use, byte for byte. _load_credentials() has a quirk:
+    # when api_key/lib_id need the ~/.claude/.env fallback, it ALSO
+    # re-resolves lib_type from that file, even if the shell environment
+    # already had a different (higher-precedence) lib_type -- reporting an
+    # independently "clean" precedence here would silently disagree with
+    # the real client (reviewer round 4).
+    _, _, library_type = _load_credentials()
+
+    return {
+        "api_key_set": api_key_set,
+        "api_key_source": api_key_source,
+        "library_id_set": library_id_set,
+        "library_id_source": library_id_source,
+        "library_type": library_type,
+        "dotenv_file_exists": dotenv_path.exists(),
+        "config_json_exists": _CONFIG_PATH.exists(),
+        "config_json_readable": config_readable,
+    }
+
+
 class ZoteroDualClient:
     """Dual-mode Zotero client: local API for fast reads, Web API for writes.
 
@@ -421,6 +590,46 @@ class ZoteroDualClient:
             [{"name": name, "parentCollection": parent_key}]
         ))
 
+    def attach_pdf(self, parent_key: str, path, filename: str | None = None) -> dict:
+        """Attach a PDF (or other file) to an existing item, via a short safe copy.
+
+        Copies ``path`` into a fresh temp directory under a short, space-free
+        filename (derived from the original basename unless ``filename`` is
+        given), then calls pyzotero's ``attachment_both`` with that copy's
+        path but the ORIGINAL (or ``filename``-overridden) basename as the
+        displayed title -- so the Zotero item shows a readable name even
+        though the uploaded file itself has the short, safe one. This avoids
+        the SILENT failure ``attachment_simple``/``attachment_both`` can hit
+        against a long Windows path containing spaces (ZOT-ATTACH-026): no
+        exception is raised, it just returns ``{"failure": [...]}`` with no
+        detail unless a caller checks for it. This method checks, and RAISES
+        with whatever detail pyzotero's own ``failure`` list contains --
+        never returns a result the caller might not look at.
+
+        The temp copy is always removed afterward, success or failure.
+        """
+        self._require_web()
+        src = Path(path)
+        if not src.is_file():
+            raise FileNotFoundError(f"No such file: {src}")
+
+        safe_name = _safe_attachment_filename(src.name, filename)
+        display_title = filename if filename else src.name
+        tmp_dir = tempfile.mkdtemp(prefix="zotattach_")
+        try:
+            tmp_path = Path(tmp_dir) / safe_name
+            shutil.copyfile(src, tmp_path)
+            result = self.web.attachment_both([(display_title, str(tmp_path))], parent_key)
+            failures = (result or {}).get("failure") or []
+            if failures:
+                raise ZoteroWriteError(
+                    f"Zotero attachment upload failed for {len(failures)} file(s) "
+                    f"attaching {src.name!r} to {parent_key}: {failures}"
+                )
+            return result
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
     # --- UPDATE (web API; version read from the authoritative Web API) ---
     def update_item(self, key, updates: dict):
         self._require_web()
@@ -460,14 +669,15 @@ class ZoteroDualClient:
     move_to_collection = add_to_collection
 
     # --- TRASH (recoverable — preferred default, ZOT-DEL-003) ---
-    def trash_item(self, key):
-        """Move an item to the trash (RECOVERABLE, auto-purged after ~30 days) by
-        setting ``deleted=1``. Prefer this over ``delete_item``, which is PERMANENT.
+    def _patch_deleted_flag(self, key, flag: int) -> bool:
+        """PATCH an item's ``deleted`` flag directly against the authoritative
+        Web API. ``flag=1`` trashes, ``flag=0`` restores.
 
-        Empirically verified: the Web API ``DELETE`` does NOT trash (it removes the
-        item outright), and pyzotero's ``update_item`` rejects the ``deleted`` field,
-        so trashing is issued as a direct PATCH against the authoritative Web API
-        (API key stays in a header over TLS; version comes from the Web read)."""
+        Empirically verified: the Web API ``DELETE`` does NOT trash (it removes
+        the item outright), and pyzotero's ``update_item`` rejects the
+        ``deleted`` field (``check_items`` has no such field in its allowed-keys
+        template), so this is issued as a direct PATCH (API key stays in a
+        header over TLS; version comes from the Web read)."""
         self._require_web()
         item = self._web_item(key)
         version = item["data"]["version"]
@@ -475,7 +685,7 @@ class ZoteroDualClient:
         url = f"{self.web.endpoint}/{self.web.library_type}/{self.web.library_id}/items/{safe_key}"
         req = urllib.request.Request(
             url,
-            data=json.dumps({"deleted": 1}).encode("utf-8"),
+            data=json.dumps({"deleted": flag}).encode("utf-8"),
             method="PATCH",
             headers={
                 "Zotero-API-Key": self.api_key,
@@ -487,8 +697,253 @@ class ZoteroDualClient:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return resp.status in (200, 204)
 
+    def trash_item(self, key):
+        """Move an item to the trash (RECOVERABLE, auto-purged after ~30 days) by
+        setting ``deleted=1``. Prefer this over ``delete_item``, which is
+        PERMANENT. See ``restore_item`` to reverse this."""
+        return self._patch_deleted_flag(key, 1)
+
     def trash_items(self, keys: list):
         return [self.trash_item(k) for k in keys]
+
+    def restore_item(self, key):
+        """Restore a trashed item (the reverse of ``trash_item``) by setting
+        ``deleted=0``, via the same raw-PATCH technique (pyzotero's
+        ``update_item`` rejects the ``deleted`` field either way)."""
+        return self._patch_deleted_flag(key, 0)
+
+    def restore_items(self, keys: list):
+        return [self.restore_item(k) for k in keys]
+
+    def merge_duplicates(self, keep_key: str, dup_key: str, require_same_doi: bool = True) -> dict:
+        """Merge ``dup_key`` into ``keep_key`` (ZOT-MERGE-027).
+
+        The Zotero Web API has no native merge endpoint -- only the desktop
+        app's merge pane does this in one click. This reproduces the CORE of
+        the desktop merge, over the Web API, as a sequence of ordinary writes:
+
+          0. Refuse ``keep_key == dup_key`` (merging an item with itself would
+             just trash it).
+          1. Read both items from the Web API (authoritative version source,
+             matching ``update_item`` / ``trash_item``, ZOT-COR-004).
+          2. Refuse if either is a note, an attachment, or has a ``parentItem``
+             (only top-level library items can be merged).
+          3. Refuse if either item is already deleted/trashed (call
+             ``restore_item()`` on it first), or if they fail the identity
+             check: DOIs normalized (strip/drop a doi.org or dx.doi.org
+             resolver prefix or a ``doi:`` prefix, any case/scheme, then
+             lowercase) must match when at least one side has one; when
+             BOTH are empty, the normalized title AND itemType must match,
+             and EITHER the year or the first creator's last name must
+             also match -- unless ``require_same_doi=False``.
+          4. Move every child (notes AND attachments) of ``dup_key`` onto
+             ``keep_key`` by setting each child's ``parentItem``, paginating
+             with ``everything()`` so this is not silently capped at ~100
+             children. A child that is itself already in the trash is
+             SKIPPED (pyzotero's ``update_item`` rejects a payload carrying
+             a ``deleted`` key) and reported, not silently dropped. If any
+             (non-skipped) child move raises, the error is wrapped in
+             ``ZoteroWriteError`` listing which child keys were already
+             moved -- nothing has been trashed yet, so re-running this call
+             is safe once the underlying error is fixed.
+          5. Re-read ``keep`` fresh, right before writing it, so the union
+             below is based on its latest version (not a copy that may have
+             gone stale while children were being moved).
+          6. Union ``dup``'s collections, tags, and own relations (any
+             predicate, a bare string normalized to a one-item list, no
+             duplicates) onto the freshly-read ``keep`` -- never drops
+             anything ``keep`` already had. A relation value pointing back
+             at ``keep`` itself is SKIPPED (Zotero's "Related" links are
+             two-way, so ``dup`` commonly already has one pointing at
+             ``keep``; copying it over would leave ``keep`` related to
+             itself, which the desktop merge also avoids).
+          7. Add the real Zotero item URI, e.g.
+             ``http://zotero.org/users/<libraryID>/items/<dup_key>`` for a
+             user library or ``http://zotero.org/groups/<libraryID>/items/<dup_key>``
+             for a group library, to ``keep``'s ``relations['dc:replaces']``.
+          8. ``trash_item(dup_key)`` LAST, once nothing useful is left on it.
+
+        A failure updating ``keep`` (step 6/7) or trashing ``dup`` (step 8)
+        is also wrapped in ``ZoteroWriteError``, stating plainly what has
+        and has not happened yet (children ARE already moved either way;
+        a step-6/7 failure means nothing was trashed; a step-8 failure
+        means ``keep`` WAS updated but ``dup`` still needs trashing by
+        hand).
+
+        This does NOT do everything the desktop merge pane does: it does not
+        repoint OTHER items' existing relations that reference ``dup_key``
+        (those still point at a now-trashed item), does not reconcile
+        ``dateAdded`` (desktop keeps the earliest), and does not deduplicate
+        identical PDF attachments that end up as siblings on ``keep`` after
+        the merge. Do those by hand if they matter for a given pair.
+
+        CALLER MUST GET USER CONFIRMATION FIRST: step 8 trashes an item, which
+        this skill's safety rules treat like any other delete -- confirm the
+        keep/duplicate keys and titles with the user before calling this.
+
+        Returns a summary dict: ``children_moved`` (count),
+        ``skipped_deleted_children`` (keys left alone because they were
+        already trashed), ``collections_added`` and ``tags_added`` (lists of
+        what was newly added to ``keep``), ``relation`` (the dc:replaces URI
+        added), ``trashed_key`` (``dup_key``).
+        """
+        self._require_web()
+        if keep_key == dup_key:
+            raise ValueError(f"Cannot merge an item with itself ({keep_key!r}).")
+
+        keep_item = self._web_item(keep_key)
+        dup_item = self._web_item(dup_key)
+        keep_data = keep_item["data"]
+        dup_data = dup_item["data"]
+
+        # pyzotero / the Web API upper-case item keys, so two differently-cased
+        # spellings of the same key (e.g. "abcd2345" vs "ABCD2345") would slip
+        # past the raw `keep_key == dup_key` check above; compare the keys the
+        # server actually returned too (reviewer round 4).
+        if str(keep_data.get("key", "")).upper() == str(dup_data.get("key", "")).upper():
+            raise ValueError(
+                f"Cannot merge an item with itself ({keep_key!r} and {dup_key!r} "
+                "resolve to the same item)."
+            )
+
+        for label, data in (("keep", keep_data), ("dup", dup_data)):
+            if data.get("parentItem") or data.get("itemType") in ("note", "attachment"):
+                raise ValueError(
+                    f"Cannot merge: {label}={data.get('key')} is a child item "
+                    f"(itemType={data.get('itemType')!r}, parentItem={data.get('parentItem')!r}); "
+                    "only top-level library items can be merged."
+                )
+
+        if keep_data.get("deleted") or dup_data.get("deleted"):
+            raise ValueError(
+                f"Cannot merge: keep={keep_key} deleted={bool(keep_data.get('deleted'))}, "
+                f"dup={dup_key} deleted={bool(dup_data.get('deleted'))}. Call restore_item() "
+                "on the trashed one first, or pick a different pair."
+            )
+
+        if require_same_doi:
+            keep_doi = _normalize_doi(keep_data.get("DOI", ""))
+            dup_doi = _normalize_doi(dup_data.get("DOI", ""))
+            if keep_doi or dup_doi:
+                if keep_doi != dup_doi:
+                    raise ValueError(
+                        f"Refusing to merge {keep_key} and {dup_key}: DOI mismatch "
+                        f"(keep={keep_doi!r} vs dup={dup_doi!r}). Pass "
+                        "require_same_doi=False to override after manual confirmation."
+                    )
+            else:
+                keep_title = _normalize_title(keep_data.get("title", ""))
+                dup_title = _normalize_title(dup_data.get("title", ""))
+                same_title = bool(keep_title) and keep_title == dup_title
+                same_item_type = keep_data.get("itemType") == dup_data.get("itemType")
+                keep_year = _extract_year(keep_data.get("date", ""))
+                dup_year = _extract_year(dup_data.get("date", ""))
+                same_year = bool(keep_year) and keep_year == dup_year
+                keep_creator = _first_creator_lastname(keep_data)
+                dup_creator = _first_creator_lastname(dup_data)
+                same_creator = bool(keep_creator) and keep_creator == dup_creator
+                if not (same_title and same_item_type and (same_year or same_creator)):
+                    raise ValueError(
+                        f"Refusing to merge {keep_key} and {dup_key}: neither item has a "
+                        "DOI, and they do not match closely enough without one (title "
+                        f"match={same_title}, itemType match={same_item_type} "
+                        f"({keep_data.get('itemType')!r} vs {dup_data.get('itemType')!r}), "
+                        f"year match={same_year}, first-creator match={same_creator}). "
+                        "Pass require_same_doi=False to override after manual confirmation."
+                    )
+
+        # Step 4: move every (non-trashed) child of dup onto keep, paginated.
+        children = self.web.everything(self.web.children(dup_key)) or []
+        moved_child_keys = []
+        skipped_deleted_children = []
+        try:
+            for child in children:
+                child_data = child["data"]
+                child_key = child_data.get("key")
+                if child_data.get("deleted"):
+                    skipped_deleted_children.append(child_key)
+                    continue
+                child_data["parentItem"] = keep_key
+                self.web.update_item(child_data)
+                moved_child_keys.append(child_key)
+        except Exception as exc:
+            raise ZoteroWriteError(
+                f"merge_duplicates aborted while moving children of {dup_key} onto "
+                f"{keep_key}: {exc}. Already moved: {moved_child_keys}. Nothing was "
+                "trashed; safe to re-run once the underlying error is fixed."
+            ) from exc
+        children_moved = len(moved_child_keys)
+
+        # Step 5: re-read keep fresh, right before writing it (not the copy
+        # read at the top, which may be stale after moving children).
+        fresh_keep_data = self._web_item(keep_key)["data"]
+
+        # Step 6: union collections, tags, and dup's own relations onto keep.
+        keep_collections = set(fresh_keep_data.get("collections", []))
+        dup_collections = set(dup_data.get("collections", []))
+        collections_added = sorted(dup_collections - keep_collections)
+        fresh_keep_data["collections"] = list(keep_collections | dup_collections)
+
+        keep_tag_names = {t["tag"] for t in fresh_keep_data.get("tags", [])}
+        new_tags = [t for t in dup_data.get("tags", []) if t["tag"] not in keep_tag_names]
+        fresh_keep_data.setdefault("tags", []).extend(new_tags)
+
+        lib_segment = _pluralize_library_type(self.web.library_type)
+        dup_uri = f"http://zotero.org/{lib_segment}/{self.web.library_id}/items/{dup_key}"
+        keep_uri = f"http://zotero.org/{lib_segment}/{self.web.library_id}/items/{keep_key}"
+
+        keep_relations = fresh_keep_data.setdefault("relations", {})
+        for predicate, values in (dup_data.get("relations") or {}).items():
+            values_list = [values] if isinstance(values, str) else list(values)
+            existing = keep_relations.get(predicate, [])
+            if isinstance(existing, str):
+                existing = [existing]
+            merged = list(existing)
+            for v in values_list:
+                if v == keep_uri:
+                    continue  # would make keep related to itself; skip (ZOT-MERGE round 4)
+                if v not in merged:
+                    merged.append(v)
+            keep_relations[predicate] = merged
+
+        # Step 7: record the merge itself via dc:replaces.
+        existing_replaces = keep_relations.get("dc:replaces", [])
+        if isinstance(existing_replaces, str):
+            existing_replaces = [existing_replaces]
+        if dup_uri not in existing_replaces:
+            existing_replaces = [*existing_replaces, dup_uri]
+        keep_relations["dc:replaces"] = existing_replaces
+
+        try:
+            self.web.update_item(fresh_keep_data)
+        except Exception as exc:
+            raise ZoteroWriteError(
+                f"merge_duplicates aborted while updating keep={keep_key} after moving "
+                f"{children_moved} child(ren) from {dup_key}: {exc}. Children ARE already "
+                f"moved (keys: {moved_child_keys}); keep's collections/tags/relations were "
+                "NOT saved; nothing was trashed. Safe to re-run once the underlying error "
+                "is fixed (the already-moved children will simply be re-moved)."
+            ) from exc
+
+        # Step 8: trash the duplicate LAST, after everything useful moved off it.
+        try:
+            self.trash_item(dup_key)
+        except Exception as exc:
+            raise ZoteroWriteError(
+                f"merge_duplicates updated keep={keep_key} (children moved, collections/"
+                f"tags/relations unioned) but failed to trash the duplicate {dup_key}: "
+                f"{exc}. Nothing left to redo except trashing {dup_key} by hand (e.g. "
+                "trash_item(dup_key)) once the underlying error is fixed."
+            ) from exc
+
+        return {
+            "children_moved": children_moved,
+            "skipped_deleted_children": skipped_deleted_children,
+            "collections_added": collections_added,
+            "tags_added": [t["tag"] for t in new_tags],
+            "relation": dup_uri,
+            "trashed_key": dup_key,
+        }
 
     # --- DELETE (web API — PERMANENT, not recoverable) ---
     def delete_item(self, key):

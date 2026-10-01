@@ -1,7 +1,7 @@
 {
   "name": "zotero-skills",
-  "description": "Full Zotero CRUD: search, add, update, delete items with notes, tags, and collections (PDF upload via raw pyzotero). Dual local/Web API routing.",
-  "version": "0.2.0",
+  "description": "Full Zotero CRUD: search, add, update, tag, trash/restore, delete, merge duplicates, and attach PDFs via pyzotero. Dual local/Web API routing; writes work even when the separately configured zotero MCP server is read-only.",
+  "version": "0.3.0",
   "author": {
     "name": "Wenyu Chiou"
   },
