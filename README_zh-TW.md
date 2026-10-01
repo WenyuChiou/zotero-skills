@@ -19,6 +19,19 @@
 
 ---
 
+## 這個技能能做什麼
+
+除了標準 CRUD 之外，這個技能還處理四件 AI agent 常誤判為「做不到」的事：
+
+- **即使 Zotero MCP 伺服器是唯讀的，寫入仍然可行。** 那個 MCP 伺服器是另外設定的，跟這個技能本身無關；寫入走的是共用 client 自己的 Web API 金鑰，依序從環境變數、`~/.claude/.env`、`config.json` 解析。要檢查金鑰設定在哪，呼叫 `credentials_status()`（只回傳布林值與來源標籤，絕不回傳金鑰本身），不要自己打開這些檔案。
+- **合併重複項目**，即使 Web API 沒有合併端點：`ZoteroDualClient.merge_duplicates()` 重現桌面版合併的核心步驟（搬移所有子項目、聯集集合／標籤／關聯、加上 `dc:replaces` 關聯，最後把重複項目移到垃圾桶，可用 `restore_item()` 復原）。
+- **可靠地附加 PDF**，即使路徑很長又含空白（Windows 常見情況），這會讓 pyzotero 的 `attachment_simple` 靜默失敗。`ZoteroDualClient.attach_pdf()` 會先複製成短而安全的檔名（並加上 `zot_` 前綴），失敗時會把 pyzotero 回傳的「失敗上傳項目」整個拋出來（pyzotero 本身不會給更深的伺服器原因），不會悄悄吞掉。
+- **引導尋找遺失的 PDF**，而不是直接假設只能手動下載：先查 Downloads 和 Zotero 的 storage 資料夾，再經你同意後，在你已登入的瀏覽器工作階段中用瀏覽器 MCP 找。
+
+完整列表見 `skills/zotero-skills/SKILL.md` 的能力對照表，包含每一項各自的限制。
+
+---
+
 ## 功能特色
 
 ### 核心 CRUD 操作

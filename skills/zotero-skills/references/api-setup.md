@@ -35,6 +35,14 @@ export ZOTERO_LIBRARY_TYPE="user"
    `config.json` is a **deprecated** fallback (emits a `DeprecationWarning`); if you use it, keep it
    gitignored and `chmod 600`. Never place a real key in any committed file.
 
+> **Checking whether credentials are configured:** never open or print
+> `~/.claude/.env` or `config.json` to check. Call `credentials_status()`
+> instead; it does the same env → `~/.claude/.env` → `config.json`
+> resolution internally and returns only booleans and a source label
+> (`"env"` / `"~/.claude/.env"` / `"config.json"` / `"none"`), never the
+> key or library ID itself. An empty shell environment variable is not
+> proof that no key exists elsewhere in that chain.
+
 ## Using the Shared Client
 
 ```python
@@ -60,5 +68,9 @@ dual.create_note("ITEM_KEY", "Section", "Notes...")  # always web API
 | `add_note(zot, item_key, content)` | Attach a child note to a library item |
 | `check_duplicate(zot, title, doi)` | Check if item with given title or DOI exists |
 | `check_local_api(timeout, library_id)` | Test if Zotero desktop local API is reachable |
+| `credentials_status()` | Report whether a key/library ID are configured and which layer they came from, as booleans + a source label; never returns the value. Call this instead of opening `~/.claude/.env` or `config.json` |
 | `ZoteroDualClient` | Dual-API wrapper with auto-fallback |
+| `ZoteroDualClient.attach_pdf(parent_key, path, filename=None)` | Attach a PDF via a short, safe, `zot_`-prefixed temp filename; raises the failed-upload detail instead of failing silently (see `create-operations.md`) |
+| `ZoteroDualClient.restore_item(key)` | Reverse `trash_item()`: PATCH `deleted=0` |
+| `ZoteroDualClient.merge_duplicates(keep_key, dup_key, require_same_doi=True)` | Merge a duplicate into the keeper: move children, union collections/tags/relations, add a `dc:replaces` relation, then trash the duplicate (see `merge-duplicates.md`) |
 | `safe_api_call(func)` | Wrapper with automatic rate-limit backoff |
