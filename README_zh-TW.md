@@ -86,7 +86,16 @@ ZOTERO_LIBRARY_TYPE=user
 
 這樣就好——不用寫程式、全域生效、也沒有東西要提交。（把這三個設成 shell 環境變數也可以。）
 
-> ⚠️ **OS 層級的舊 `ZOTERO_API_KEY` 環境變數會蓋過 `~/.claude/.env`**（環境變數優先）。若新金鑰似乎沒生效，先檢查是否有殘留的舊值——PowerShell：`$Env:ZOTERO_API_KEY`；bash：`echo $ZOTERO_API_KEY`——並移除它。
+> **OS 層級的舊憑證會蓋過 `~/.claude/.env`**。以
+> `credentials_status()` 檢查實際來源；不要 echo API key、貼到對話，
+> 或讓 agent 開啟憑證檔。憑證與持續存取權限的變更由使用者自行審查。
+
+在 repository root（或已解析的 marketplace plugin root）執行以下唯讀診斷，
+只會輸出是否已設定與來源標籤，不含憑證值：
+
+```bash
+python -c "from scripts.zotero_client import credentials_status; print(credentials_status())"
+```
 
 <details>
 <summary><b>舊方式（已棄用）：<code>config.json</code></b></summary>
@@ -131,7 +140,7 @@ claude plugin install zotero-skills@ai-research-skills
 | CLI | 如何載入技能 |
 |---|---|
 | **Claude Code** | 放入 `~/.claude/skills/` 或 `.claude/skills/` — 自動載入 |
-| **Codex CLI** | 以 `-C` 傳入 `SKILL.md` 作為上下文檔案，或加入任務提示 |
+| **Codex CLI** | 透過 skills discovery 或任務 context 載入內層 `skills/zotero-skills/SKILL.md`；`-C` / `--cd` 選擇工作目錄，不是 context 檔案 |
 | **Gemini CLI** | 將 `SKILL.md` 加入系統提示或專案上下文 |
 | **Cursor / Windsurf** | 將 `SKILL.md` 加入 `.cursor/rules` 或對應規則檔 |
 | **其他工具** | 將 `SKILL.md` 相關段落貼入系統提示 |
@@ -180,7 +189,7 @@ Zotero 提供兩個 API 介面，本技能自動路由。
 - 效能略降（Web 延遲），但所有操作仍正常運作
 
 ```python
-from zotero_client import ZoteroDualClient
+from scripts.zotero_client import ZoteroDualClient
 
 dual = ZoteroDualClient()
 # dual.local_available → True 表示桌面版執行中，False 則否
@@ -216,10 +225,11 @@ dual.create_note("ITEM_KEY", "Section", "Notes...")  # 一律走 Web API
 
 ### ZoteroDualClient（建議方式）
 
+請在包含 `scripts/` 的 repository/plugin root 執行。只複製可攜式
+`SKILL.md` 不會包含 shared client。
+
 ```python
-import os, sys
-sys.path.insert(0, os.path.expanduser("~/.claude/skills/zotero-skills/scripts"))
-from zotero_client import ZoteroDualClient
+from scripts.zotero_client import ZoteroDualClient
 dual = ZoteroDualClient()
 print(f"本地 API 可用: {dual.local_available}")
 

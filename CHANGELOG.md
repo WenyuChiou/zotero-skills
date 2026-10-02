@@ -11,6 +11,15 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ## [Unreleased]
 
+### Fixed
+
+- English and Traditional Chinese credential diagnostics now use the
+  value-free `credentials_status()` helper, never key-echo instructions.
+- Codex documentation identifies `-C` / `--cd` as a working directory;
+  client examples resolve the repository/plugin-root `scripts` module.
+- Corrected the 0.3.0 attachment implementation description to name
+  `attachment_both`; the historical raw `attachment_simple` caveat remains.
+
 ## [0.3.0] - 2026-10-01
 
 Fixes agents wrongly concluding that Zotero writes, duplicate merges,
@@ -30,7 +39,7 @@ restoring a trashed item, and PDF attachment are impossible.
   the file to a short, space-free, `zot_`-prefixed temp filename (the
   prefix rules out a Windows-reserved device name like `CON`; non-ASCII
   letters, e.g. CJK titles, are preserved) before calling pyzotero's
-  `attachment_simple`, and raises with the failed-upload detail instead
+  `attachment_both`, and raises with the failed-upload detail instead
   of returning a silent `{"failure": [...]}` (fixes a real silent
   failure against a long Windows path with spaces).
 - `ZoteroDualClient.merge_duplicates(keep_key, dup_key, require_same_doi=True)`:
