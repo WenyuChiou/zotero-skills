@@ -67,3 +67,48 @@ def test_dependency_declaration_exists():
 def test_config_json_is_gitignored():
     gi = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
     assert "config.json" in gi
+
+
+def test_credential_diagnostics_do_not_echo_api_key_values():
+    for name, text in ALL_DOCS.items():
+        assert not re.search(r"echo\s+\$\{?ZOTERO_API_KEY", text), name
+        assert not re.search(r"`\$Env:ZOTERO_API_KEY`", text, re.I), name
+    for text in (README, README_ZH):
+        assert "credentials_status()" in text
+
+
+def test_codex_c_is_working_directory_not_context_file():
+    for text in (README, README_ZH):
+        row = next(line for line in text.splitlines() if "**Codex CLI**" in line)
+        assert "--cd" in row
+        assert "directory" in row or "工作目錄" in row
+
+
+def test_readme_examples_use_repository_root_module_path():
+    for text in (README, README_ZH):
+        assert "from scripts.zotero_client import ZoteroDualClient" in text
+        assert "~/.claude/skills/zotero-skills/scripts" not in text
+        assert "credentials_status()" in text
+
+
+def test_current_attachment_changelog_names_actual_api():
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    current = changelog.split("## [0.3.0]", 1)[1].split("## [0.2.0]", 1)[0]
+    assert "before calling pyzotero's\n  `attachment_both`" in current
+
+
+def test_documented_safe_diagnostic_runs_without_echoing_values(tmp_path):
+    import os
+    import subprocess
+    import sys
+    secret = "synthetic-do-not-echo-key"
+    library = "synthetic-do-not-echo-library"
+    env = dict(os.environ, HOME=str(tmp_path), ZOTERO_API_KEY=secret, ZOTERO_LIBRARY_ID=library)
+    code = 'from scripts.zotero_client import credentials_status; print(credentials_status())'
+    assert code in README and code in README_ZH
+    run = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, env=env, text=True, capture_output=True)
+    assert run.returncode == 0, run.stderr
+    assert "'api_key_set': True" in run.stdout
+    assert "'api_key_source': 'env'" in run.stdout
+    assert secret not in run.stdout + run.stderr
+    assert library not in run.stdout + run.stderr

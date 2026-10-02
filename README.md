@@ -86,7 +86,17 @@ ZOTERO_LIBRARY_TYPE=user
 
 That's it — no code, works everywhere, and nothing to commit. (Setting the same three as shell environment variables works too.)
 
-> ⚠️ **A stale OS-level `ZOTERO_API_KEY` overrides `~/.claude/.env`** (environment wins). If a new key seems ignored, check for a leftover one — PowerShell: `$Env:ZOTERO_API_KEY` · bash: `echo $ZOTERO_API_KEY` — and remove it.
+> **A stale OS-level credential overrides `~/.claude/.env`**. Diagnose the
+> resolved source with `credentials_status()`; never echo the API key, paste it
+> into a chat, or open credential files for an agent. Review any change to
+> credentials or persistent access yourself.
+
+From the repository root (or the resolved marketplace plugin root), this
+read-only diagnostic prints presence and source labels without credential values:
+
+```bash
+python -c "from scripts.zotero_client import credentials_status; print(credentials_status())"
+```
 
 <details>
 <summary><b>Legacy alternative: <code>config.json</code> (deprecated)</b></summary>
@@ -129,7 +139,7 @@ This skill was developed for Claude Code but works with any AI assistant.
 | CLI | How to load the skill |
 |---|---|
 | **Claude Code** | Place in `~/.claude/skills/` or `.claude/skills/` — auto-loaded |
-| **Codex CLI** | Pass `SKILL.md` as a context file via `-C` or include in task prompt |
+| **Codex CLI** | Load the inner `skills/zotero-skills/SKILL.md` through skills discovery or task context; `-C` / `--cd` selects the working directory, not a context file |
 | **Gemini CLI** | Include `SKILL.md` in system prompt or project context |
 | **Cursor / Windsurf** | Add `SKILL.md` to `.cursor/rules` or equivalent rules file |
 | **Any other tool** | Paste relevant sections of `SKILL.md` into your system prompt |
@@ -178,7 +188,7 @@ On initialization, `ZoteroDualClient` calls `check_local_api()` — a lightweigh
 - Performance degrades slightly (web latency), but all operations still work
 
 ```python
-from zotero_client import ZoteroDualClient
+from scripts.zotero_client import ZoteroDualClient
 
 dual = ZoteroDualClient()
 # dual.local_available → True if Zotero desktop running, False otherwise
@@ -214,10 +224,11 @@ From `scripts/zotero_client.py`:
 
 ### ZoteroDualClient (recommended)
 
+Run from the repository/plugin root, which contains `scripts/`. A portable
+`SKILL.md` copy alone does not include the shared client.
+
 ```python
-import os, sys
-sys.path.insert(0, os.path.expanduser("~/.claude/skills/zotero-skills/scripts"))
-from zotero_client import ZoteroDualClient
+from scripts.zotero_client import ZoteroDualClient
 dual = ZoteroDualClient()
 print(f"Local API available: {dual.local_available}")
 
