@@ -595,18 +595,61 @@ class ZoteroDualClient:
 
         Copies ``path`` into a fresh temp directory under a short, space-free
         filename (derived from the original basename unless ``filename`` is
-        given), then calls pyzotero's ``attachment_both`` with that copy's
-        path but the ORIGINAL (or ``filename``-overridden) basename as the
-        displayed title -- so the Zotero item shows a readable name even
-        though the uploaded file itself has the short, safe one. This avoids
-        the SILENT failure ``attachment_simple``/``attachment_both`` can hit
-        against a long Windows path containing spaces (ZOT-ATTACH-026): no
-        exception is raised, it just returns ``{"failure": [...]}`` with no
-        detail unless a caller checks for it. This method checks, and RAISES
-        with whatever detail pyzotero's own ``failure`` list contains --
-        never returns a result the caller might not look at.
+        given), then uploads it with pyzotero's ``upload_attachments(...,
+        basedir=tmp_dir)`` -- passing the BARE safe filename in the payload's
+        ``filename`` field (resolved against ``tmp_dir`` only when pyzotero
+        reads the file off disk) and the ORIGINAL (or ``filename``-overridden)
+        basename as the displayed ``title`` -- so the Zotero item shows a
+        readable name even though the uploaded file itself has the short,
+        safe one.
+
+        This does NOT go through ``attachment_both``/``attachment_simple``:
+        those two helpers set the attachment template's ``filename`` field to
+        whatever string the caller passes as the file path, and that field is
+        sent VERBATIM as item metadata to the Create Items endpoint -- no
+        ``basedir`` separates "where to read the file" from "what to tell
+        the server the filename is". A full temp-dir path there (even a
+        short, safe one) is REJECTED by the Zotero API with HTTP 400,
+        "Stored-file filename '...' cannot contain a directory path"
+        (ZOT-ATTACH-028 -- this broke every 0.3.0 call). ``upload_attachments``
+        is the one pyzotero entry point where the payload's ``filename`` is a
+        bare name and ``basedir`` is a separate, local-only join used when
+        reading the file to upload -- the directory never reaches the server.
+
+        The short, space-free copy itself is still made first, which
+        separately avoids the SILENT failure ``attachment_simple``/
+        ``attachment_both`` can hit against a long Windows path containing
+        spaces (ZOT-ATTACH-026: no exception, just an empty
+        ``{"failure": [...]}`` with no detail).
+
+        Raises ``ZoteroWriteError`` with whatever detail pyzotero's own
+        ``failure`` list contains, or if the upload reports no usable
+        success/unchanged entry. On a reported success OR ``unchanged``
+        result, this method ALSO reads the newly created attachment back
+        from the Web API and confirms it has an ``md5`` before trusting the
+        call -- a ``key`` with no corresponding synced file would otherwise
+        look like success. (``unchanged`` is a real, successful outcome:
+        pyzotero's ``Zupload.upload()`` routes a file there -- never into
+        ``success`` -- whenever the Zotero Web API's upload-authorization
+        step reports ``exists: 1``, meaning a file with that exact MD5 is
+        already in the library's storage somewhere. The attachment ITEM is
+        still created and its ``key`` set either way; only the raw-bytes
+        re-upload is skipped. The same PDF attached to two related items, or
+        simply retrying ``attach_pdf`` on a file already uploaded once, lands
+        here -- treating it as a failure would be wrong.)
+
+        If the read-back itself raises (e.g. a transient error right after
+        creation), that is wrapped in ``ZoteroWriteError`` too, noting that
+        the attachment item may already exist on the server unconfirmed.
 
         The temp copy is always removed afterward, success or failure.
+
+        Returns a dict: ``key`` (the new attachment's item key), ``md5``,
+        ``title``, ``filename`` (the bare safe name actually stored), and
+        ``raw`` (pyzotero's full upload-result dict). This is a NEW return
+        shape -- 0.3.0's ``attach_pdf`` returned pyzotero's raw upload-result
+        dict directly, but every 0.3.0 call failed before reaching a caller
+        that could depend on that shape.
         """
         self._require_web()
         src = Path(path)
@@ -619,14 +662,62 @@ class ZoteroDualClient:
         try:
             tmp_path = Path(tmp_dir) / safe_name
             shutil.copyfile(src, tmp_path)
-            result = self.web.attachment_both([(display_title, str(tmp_path))], parent_key)
+
+            template = self.web.item_template("attachment", linkmode="imported_file")
+            template["title"] = display_title
+            template["filename"] = safe_name  # bare name only -- never the tmp_dir path
+
+            result = self.web.upload_attachments(
+                [template], parentid=parent_key, basedir=tmp_dir,
+            )
             failures = (result or {}).get("failure") or []
             if failures:
                 raise ZoteroWriteError(
                     f"Zotero attachment upload failed for {len(failures)} file(s) "
                     f"attaching {src.name!r} to {parent_key}: {failures}"
                 )
-            return result
+
+            # A dedup hit ("exists: 1" -- a file with this exact MD5 is
+            # already in the library's storage) lands in "unchanged", never
+            # "success" (pyzotero's Zupload.upload()); the attachment item is
+            # still created with a real key either way, so both buckets are
+            # valid successful outcomes (reviewer round 1, ZOT-ATTACH-028).
+            successes = (result or {}).get("success") or []
+            unchanged = (result or {}).get("unchanged") or []
+            candidates = successes + unchanged
+            created_key = candidates[0].get("key") if candidates else None
+            if not created_key:
+                raise ZoteroWriteError(
+                    f"Zotero attachment upload for {src.name!r} on {parent_key} "
+                    f"reported no usable success/unchanged entry: {result}"
+                )
+
+            # Read back from the authoritative Web API rather than trusting
+            # pyzotero's in-memory success bucket (ZOT-ATTACH-028 round 2):
+            # a key with no corresponding stored file would otherwise look
+            # identical to a real success.
+            try:
+                created = self._web_item(created_key)
+            except Exception as exc:
+                raise ZoteroWriteError(
+                    f"Attachment {created_key} for {parent_key} was created but its "
+                    f"read-back failed: {exc}. The attachment item may already exist "
+                    "on the server unconfirmed; check Zotero before retrying."
+                ) from exc
+            created_data = created.get("data", {})
+            created_md5 = created_data.get("md5")
+            if not created_md5:
+                raise ZoteroWriteError(
+                    f"Attachment {created_key} for {parent_key} has no md5 on "
+                    f"read-back; upload may not have completed: {created_data}"
+                )
+            return {
+                "key": created_key,
+                "md5": created_md5,
+                "title": created_data.get("title"),
+                "filename": created_data.get("filename"),
+                "raw": result,
+            }
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 

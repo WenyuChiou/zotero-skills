@@ -97,6 +97,7 @@ class FakeZotero:
         self._items_by_key = {}    # key -> full item dict, consulted by .item()
         self._children_by_key = {}  # parent key -> list of child item dicts
         self._attachment_failure = []  # list to return as attachment_simple's "failure"
+        self._attachment_unchanged = False  # True: upload_attachments reports "unchanged" not "success"
         self._fail_on_call = {}    # method_name -> {"count": N, "exc": Exception, "seen": 0}
 
     def _record(self, name, *a, **k):
@@ -150,6 +151,42 @@ class FakeZotero:
             return {"success": [], "failure": list(self._attachment_failure), "unchanged": []}
         success = [{"title": title, "filename": path} for title, path in files]
         return {"success": success, "failure": [], "unchanged": []}
+
+    def upload_attachments(self, attachments, parentid=None, basedir=None, *a, **k):
+        # Mirrors real pyzotero's upload_attachments/Zupload: `attachments` is
+        # a list of attachment-template dicts whose "filename" is a BARE name
+        # resolved against `basedir` only to read the file off disk -- the
+        # directory is never part of what's recorded as the item's metadata.
+        self._record("upload_attachments", attachments, parentid, basedir, *a, **k)
+        if self._attachment_failure:
+            return {"success": [], "failure": list(self._attachment_failure), "unchanged": []}
+        # Real pyzotero's Zupload.upload() routes an item into "unchanged"
+        # instead of "success" whenever the upload-authorization step reports
+        # "exists: 1" (a file with this exact MD5 is already in storage) --
+        # the attachment ITEM is still created with a real key either way.
+        # `_attachment_unchanged` lets a test force that outcome.
+        bucket = "unchanged" if self._attachment_unchanged else "success"
+        bucketed = []
+        for idx, item in enumerate(attachments):
+            key = item.get("key") or f"ATT{len(self._items_by_key) + idx + 1:04d}"
+            enriched = dict(item)
+            enriched["key"] = key
+            enriched["parentItem"] = parentid
+            bucketed.append(enriched)
+            # Register so a later `.item(key)` read-back resolves with an md5,
+            # the way attach_pdf's success check requires.
+            self._items_by_key.setdefault(key, {
+                "key": key, "version": 1,
+                "data": {
+                    "key": key, "version": 1, "itemType": "attachment",
+                    "title": item.get("title"), "filename": item.get("filename"),
+                    "parentItem": parentid,
+                    "md5": f"fakemd5{key}",
+                },
+            })
+        result = {"success": [], "failure": [], "unchanged": []}
+        result[bucket] = bucketed
+        return result
 
     def collection(self, key, *a, **k):
         self._record("collection", key, *a, **k)

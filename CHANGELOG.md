@@ -11,8 +11,33 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-07
+
 ### Fixed
 
+- `ZoteroDualClient.attach_pdf()` failed on every call against the
+  installed pyzotero (1.7.6): it called `attachment_both([(title,
+  str(tmp_path))], parent_key)`, which sets the attachment template's
+  `filename` field to the literal string passed in -- including the
+  temp directory -- and sends it VERBATIM as item metadata. The real
+  Zotero API rejects any directory separator there with HTTP 400,
+  "Stored-file filename '...' cannot contain a directory path"
+  (ZOT-ATTACH-028). `attach_pdf` now builds the attachment template
+  directly and calls pyzotero's `upload_attachments(..., basedir=
+  tmp_dir)`, passing only the bare safe filename in the payload and
+  letting `basedir` resolve it locally when reading the file -- the
+  directory never reaches the server. A pyzotero dedup hit (file
+  already present by MD5 somewhere in the library) now also counts as
+  success: pyzotero reports that case via `unchanged`, never `success`,
+  even though the attachment item is genuinely created either way. It
+  also now reads the created attachment back from the Web API and
+  confirms an `md5` before returning (wrapping a read-back failure in
+  `ZoteroWriteError` too), rather than trusting the upload call's own
+  report. **Return shape changed**: `attach_pdf()` now returns
+  `{"key", "md5", "title", "filename", "raw"}` instead of pyzotero's
+  raw upload-result dict -- every 0.3.0 call failed before reaching a
+  caller that could depend on the old shape. Verified against a real
+  Zotero library (temporary item + PDF attachment + read-back + trash).
 - English and Traditional Chinese credential diagnostics now use the
   value-free `credentials_status()` helper, never key-echo instructions.
 - Codex documentation identifies `-C` / `--cd` as a working directory;
@@ -177,7 +202,8 @@ was first added.
 - Local Zotero API (port 23119) requires Zotero desktop running; this
   prerequisite is documented in the README, not enforced by the skill.
 
-[Unreleased]: https://github.com/WenyuChiou/zotero-skills/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/WenyuChiou/zotero-skills/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/WenyuChiou/zotero-skills/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/WenyuChiou/zotero-skills/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/WenyuChiou/zotero-skills/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/WenyuChiou/zotero-skills/releases/tag/v0.1.0
