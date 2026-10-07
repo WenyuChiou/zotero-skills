@@ -2,6 +2,7 @@
 
 Uses fake_pyzotero (no network). Covers Gate 4 routing + Gate 2 M-* scenarios.
 """
+import os
 import urllib.request
 from pathlib import Path
 
@@ -228,10 +229,11 @@ def test_add_to_collection_only_adds(monkeypatch, fake_pyzotero):
     assert dual.move_to_collection == dual.add_to_collection
 
 
-# ---------------- attach_pdf (ZOT-ATTACH-026) ----------------
+# ---------------- attach_pdf (ZOT-ATTACH-026, ZOT-ATTACH-028) ----------------
 def test_attach_pdf_uses_short_safe_name_and_cleans_up(monkeypatch, fake_pyzotero, tmp_path):
-    # A long Windows path with spaces must not be sent to attachment_both as-is;
-    # the copy's name must be short and space-free, and the temp dir removed after.
+    # A long Windows path with spaces must not be sent as the payload's
+    # filename; the copy's name must be short and space-free, and the temp
+    # dir removed after.
     dual = _dual(monkeypatch, local_available=False)
     src_dir = tmp_path / "a long folder name with spaces (and parens)"
     src_dir.mkdir()
@@ -241,24 +243,50 @@ def test_attach_pdf_uses_short_safe_name_and_cleans_up(monkeypatch, fake_pyzoter
 
     result = dual.attach_pdf("PARENT01", str(src))
 
-    calls = [c for c in dual.web.calls if c[0] == "attachment_both"]
+    calls = [c for c in dual.web.calls if c[0] == "upload_attachments"]
     assert len(calls) == 1
-    sent_files, sent_parent = calls[0][1][0], calls[0][1][1]
-    sent_title, sent_filepath = sent_files[0]
-    sent_path = Path(sent_filepath)
-    assert sent_parent == "PARENT01"
-    assert sent_title == long_name                # readable title preserved
-    assert " " not in sent_path.name               # but the uploaded file's name is safe
-    assert len(sent_path.name) <= 40
-    assert sent_path.name.startswith("zot_")
-    assert sent_path.suffix == ".pdf"
-    assert result["failure"] == []
-    assert not sent_path.parent.exists()          # temp dir cleaned up
+    sent_attachments, sent_parentid, sent_basedir = calls[0][1]
+    sent_template = sent_attachments[0]
+    sent_filename = sent_template["filename"]
+    assert sent_parentid == "PARENT01"
+    assert sent_template["title"] == long_name     # readable title preserved
+    assert sent_filename == Path(sent_filename).name  # BARE name: no directory path at all
+    assert " " not in sent_filename                # the uploaded file's name is safe
+    assert len(sent_filename) <= 40
+    assert sent_filename.startswith("zot_")
+    assert sent_filename.endswith(".pdf")
+    assert sent_basedir is not None and not Path(sent_basedir).exists()  # temp dir cleaned up
+    assert result["key"] and result["md5"]         # read-back succeeded
+
+
+def test_attach_pdf_filename_never_contains_a_directory_path(monkeypatch, fake_pyzotero, tmp_path):
+    # ZOT-ATTACH-028: the real Zotero API rejects any directory separator in
+    # the payload's filename field with HTTP 400 ("Stored-file filename
+    # '...' cannot contain a directory path"). Assert this invariant directly
+    # across a few path shapes, including ones that previously broke 0.3.0.
+    dual = _dual(monkeypatch, local_available=False)
+    cases = [
+        tmp_path / "plain.pdf",
+        tmp_path / "a dir with spaces" / "nested.pdf",
+        tmp_path / "unicode 論文.pdf",
+    ]
+    for src in cases:
+        src.parent.mkdir(parents=True, exist_ok=True)
+        src.write_bytes(b"%PDF-1.4")
+        dual.attach_pdf("PARENT01", str(src))
+
+    calls = [c for c in dual.web.calls if c[0] == "upload_attachments"]
+    assert len(calls) == len(cases)
+    for sent_attachments, _parentid, _basedir in (c[1] for c in calls):
+        sent_filename = sent_attachments[0]["filename"]
+        assert os.sep not in sent_filename
+        assert "/" not in sent_filename
+        assert sent_filename == Path(sent_filename).name
 
 
 def test_attach_pdf_raises_with_failure_detail_and_cleans_up(monkeypatch, fake_pyzotero, tmp_path):
-    # pyzotero's attachment_both can return {"failure": [...]} with no exception
-    # (the silent-failure bug); attach_pdf must raise with that detail instead.
+    # pyzotero can return {"failure": [...]} with no exception (the
+    # silent-failure bug); attach_pdf must raise with that detail instead.
     dual = _dual(monkeypatch, local_available=False)
     dual.web._attachment_failure = [{"title": "bad.pdf", "filename": "bad.pdf"}]
     src = tmp_path / "paper with spaces.pdf"
@@ -268,9 +296,73 @@ def test_attach_pdf_raises_with_failure_detail_and_cleans_up(monkeypatch, fake_p
         dual.attach_pdf("PARENT01", str(src))
     assert "bad.pdf" in str(ei.value)
 
-    calls = [c for c in dual.web.calls if c[0] == "attachment_both"]
-    sent_path = Path(calls[0][1][0][0][1])
-    assert not sent_path.parent.exists()          # cleaned up even on failure
+    calls = [c for c in dual.web.calls if c[0] == "upload_attachments"]
+    sent_basedir = calls[0][1][2]
+    assert not Path(sent_basedir).exists()          # cleaned up even on failure
+
+
+def test_attach_pdf_succeeds_when_pyzotero_reports_unchanged_dedup(monkeypatch, fake_pyzotero, tmp_path):
+    # Reviewer round 1 (ZOT-ATTACH-028): pyzotero's Zupload.upload() routes an
+    # item into "unchanged" instead of "success" whenever the Web API's
+    # upload-authorization step reports "exists: 1" -- a file with this exact
+    # MD5 is already in the library's storage (the same PDF attached to two
+    # items, or simply retrying attach_pdf on an already-uploaded file). The
+    # attachment ITEM is still created with a real key either way; attach_pdf
+    # must not treat this as a failure.
+    dual = _dual(monkeypatch, local_available=False)
+    dual.web._attachment_unchanged = True
+    src = tmp_path / "already_uploaded.pdf"
+    src.write_bytes(b"%PDF-1.4")
+
+    result = dual.attach_pdf("PARENT01", str(src))
+
+    assert result["key"]
+    assert result["md5"]
+    assert result["raw"]["success"] == []
+    assert result["raw"]["unchanged"]              # landed in unchanged, not success
+
+
+def test_attach_pdf_raises_when_readback_has_no_md5(monkeypatch, fake_pyzotero, tmp_path):
+    # The success check must read back the created attachment (key, md5)
+    # rather than trusting pyzotero's upload-result dict at face value: a
+    # key with no corresponding stored file must not look like success.
+    dual = _dual(monkeypatch, local_available=False)
+    src = tmp_path / "paper.pdf"
+    src.write_bytes(b"%PDF-1.4")
+
+    # Patch item() to simulate a created key whose read-back has no md5.
+    real_item = dual.web.item
+
+    def _item_no_md5(key, *a, **k):
+        result = real_item(key, *a, **k)
+        result["data"]["md5"] = None
+        return result
+
+    monkeypatch.setattr(dual.web, "item", _item_no_md5)
+
+    with pytest.raises(zc.ZoteroWriteError) as ei:
+        dual.attach_pdf("PARENT01", str(src))
+    assert "md5" in str(ei.value)
+
+
+def test_attach_pdf_wraps_readback_failure_in_zoterowriteerror(monkeypatch, fake_pyzotero, tmp_path):
+    # A transient error on the post-upload read-back (e.g. network hiccup)
+    # must still surface as ZoteroWriteError, not whatever raw exception
+    # item() happened to raise -- the attachment may already exist on the
+    # server at that point, so the error message says so.
+    dual = _dual(monkeypatch, local_available=False)
+    src = tmp_path / "paper.pdf"
+    src.write_bytes(b"%PDF-1.4")
+
+    def _item_raises(key, *a, **k):
+        raise RuntimeError("simulated transient read-back failure")
+
+    monkeypatch.setattr(dual.web, "item", _item_raises)
+
+    with pytest.raises(zc.ZoteroWriteError) as ei:
+        dual.attach_pdf("PARENT01", str(src))
+    assert "read-back failed" in str(ei.value)
+    assert "simulated transient read-back failure" in str(ei.value)
 
 
 def test_attach_pdf_filename_override_is_sanitized(monkeypatch, fake_pyzotero, tmp_path):
@@ -278,12 +370,14 @@ def test_attach_pdf_filename_override_is_sanitized(monkeypatch, fake_pyzotero, t
     src = tmp_path / "source.pdf"
     src.write_bytes(b"%PDF-1.4")
 
-    dual.attach_pdf("PARENT01", str(src), filename="My Custom Name.pdf")
+    result = dual.attach_pdf("PARENT01", str(src), filename="My Custom Name.pdf")
 
-    calls = [c for c in dual.web.calls if c[0] == "attachment_both"]
-    sent_title, sent_filepath = calls[0][1][0][0]
-    assert sent_title == "My Custom Name.pdf"      # override used as the readable title too
-    assert Path(sent_filepath).name == "zot_My_Custom_Name.pdf"
+    calls = [c for c in dual.web.calls if c[0] == "upload_attachments"]
+    sent_template = calls[0][1][0][0]
+    assert sent_template["title"] == "My Custom Name.pdf"  # override used as the readable title too
+    assert sent_template["filename"] == "zot_My_Custom_Name.pdf"
+    assert result["title"] == "My Custom Name.pdf"
+    assert result["filename"] == "zot_My_Custom_Name.pdf"
 
 
 def test_attach_pdf_missing_source_raises_before_any_call(monkeypatch, fake_pyzotero, tmp_path):
@@ -291,6 +385,8 @@ def test_attach_pdf_missing_source_raises_before_any_call(monkeypatch, fake_pyzo
     with pytest.raises(FileNotFoundError):
         dual.attach_pdf("PARENT01", str(tmp_path / "does-not-exist.pdf"))
     assert not any(c[0] == "attachment_simple" for c in dual.web.calls)
+    assert not any(c[0] == "attachment_both" for c in dual.web.calls)
+    assert not any(c[0] == "upload_attachments" for c in dual.web.calls)
 
 
 # ---------------- merge_duplicates (ZOT-MERGE-027) ----------------
