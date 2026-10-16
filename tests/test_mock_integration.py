@@ -222,11 +222,89 @@ def test_create_note_preserves_distinct_title_over_content_heading(monkeypatch, 
 def test_add_to_collection_only_adds(monkeypatch, fake_pyzotero):
     # ZOT-COR-014: adds membership, does not remove existing ones.
     dual = _dual(monkeypatch, local_available=False)
+    dual.web._items_by_key["ITEM01"] = {
+        "key": "ITEM01", "version": 1,
+        "data": {"key": "ITEM01", "version": 1, "collections": ["COLL_OLD"]},
+    }
     dual.add_to_collection("ITEM01", "COLL_NEW")
     payload = [c for c in dual.web.calls if c[0] == "update_item"][0][1][0]
-    assert "COLL_NEW" in payload["collections"]
-    # move_to_collection is a back-compat alias of add_to_collection
-    assert dual.move_to_collection == dual.add_to_collection
+    assert payload["collections"] == ["COLL_OLD", "COLL_NEW"]
+
+
+def test_two_argument_move_to_collection_keeps_legacy_add_only_behavior(
+    monkeypatch, fake_pyzotero
+):
+    dual = _dual(monkeypatch, local_available=False)
+    dual.web._items_by_key["ITEM01"] = {
+        "key": "ITEM01", "version": 1,
+        "data": {"key": "ITEM01", "version": 1, "collections": ["COLL_OLD"]},
+    }
+
+    dual.move_to_collection("ITEM01", "COLL_NEW")
+
+    payload = [c for c in dual.web.calls if c[0] == "update_item"][0][1][0]
+    assert payload["collections"] == ["COLL_OLD", "COLL_NEW"]
+
+
+def test_move_to_collection_with_source_preserves_unrelated_memberships(monkeypatch, fake_pyzotero):
+    dual = _dual(monkeypatch, local_available=False)
+    dual.web._items_by_key["ITEM01"] = {
+        "key": "ITEM01", "version": 1,
+        "data": {
+            "key": "ITEM01", "version": 1,
+            "collections": ["COLL_SOURCE", "COLL_KEEP"],
+        },
+    }
+
+    dual.move_to_collection(
+        "ITEM01", "COLL_TARGET", from_collection_key="COLL_SOURCE"
+    )
+
+    payload = [c for c in dual.web.calls if c[0] == "update_item"][0][1][0]
+    assert payload["collections"] == ["COLL_KEEP", "COLL_TARGET"]
+
+
+def test_remove_from_collection_preserves_unrelated_memberships(monkeypatch, fake_pyzotero):
+    dual = _dual(monkeypatch, local_available=False)
+    dual.web._items_by_key["ITEM01"] = {
+        "key": "ITEM01", "version": 1,
+        "data": {
+            "key": "ITEM01", "version": 1,
+            "collections": ["COLL_REMOVE", "COLL_KEEP"],
+        },
+    }
+
+    dual.remove_from_collection("ITEM01", "COLL_REMOVE")
+
+    payload = [c for c in dual.web.calls if c[0] == "update_item"][0][1][0]
+    assert payload["collections"] == ["COLL_KEEP"]
+
+
+def test_rename_collection_preserves_metadata_and_version(monkeypatch, fake_pyzotero):
+    dual = _dual(monkeypatch, local_available=False)
+    dual.web._collections_by_key["COLL01"] = {
+        "key": "COLL01", "version": 7,
+        "data": {"key": "COLL01", "name": "Before", "parentCollection": "PARENT"},
+    }
+
+    result = dual.rename_collection("COLL01", "After")
+
+    assert result is True
+    call = [c for c in dual.web.calls if c[0] == "update_collection"][0]
+    payload = call[1][0]
+    assert payload["version"] == 7
+    assert payload["data"] == {
+        "key": "COLL01", "name": "After", "parentCollection": "PARENT",
+    }
+
+
+def test_update_collection_rejects_unknown_fields_before_api_read(monkeypatch, fake_pyzotero):
+    dual = _dual(monkeypatch, local_available=False)
+
+    with pytest.raises(ValueError, match="unsupported collection field"):
+        dual.update_collection("COLL01", {"unexpected": "value"})
+
+    assert not any(c[0] in ("collection", "update_collection") for c in dual.web.calls)
 
 
 # ---------------- attach_pdf (ZOT-ATTACH-026, ZOT-ATTACH-028) ----------------

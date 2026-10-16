@@ -11,6 +11,18 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ## [Unreleased]
 
+### Added
+
+- `ZoteroDualClient.remove_from_collection()` removes one membership while
+  preserving the item's other collections. `move_to_collection()` retains its
+  historical two-argument add behavior and can perform an explicit one-source
+  move with `from_collection_key=...`.
+- `update_collection()` and `rename_collection()` update a collection through
+  the Web API while preserving the authoritative version and validating the
+  supported metadata fields.
+- Mock-only regression coverage for collection add, remove, scoped move, rename,
+  and invalid collection update fields.
+
 ## [0.3.1] - 2026-10-07
 
 ### Fixed
