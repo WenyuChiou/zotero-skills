@@ -11,6 +11,11 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
 
 ## [Unreleased]
 
+## [0.4.0] - Unreleased
+
+Prepared 0.4.0 candidate; its tag and GitHub release have not been published.
+The 0.3.x entries below describe earlier untagged versions included here.
+
 ### Added
 
 - `ZoteroDualClient.remove_from_collection()` removes one membership while
@@ -22,6 +27,12 @@ marketplace; see that repo's CHANGELOG for the catalog-side history.
   supported metadata fields.
 - Mock-only regression coverage for collection add, remove, scoped move, rename,
   and invalid collection update fields.
+- Version checks keep the plugin manifest and changelog aligned.
+
+### Changed
+
+- Plugin version advances from 0.3.1 to 0.4.0 for the new collection APIs.
+- Historical 0.3.x comparison links use recorded commits rather than absent tags.
 
 ## [0.3.1] - 2026-10-07
 
@@ -214,8 +225,9 @@ was first added.
 - Local Zotero API (port 23119) requires Zotero desktop running; this
   prerequisite is documented in the README, not enforced by the skill.
 
-[Unreleased]: https://github.com/WenyuChiou/zotero-skills/compare/v0.3.1...HEAD
-[0.3.1]: https://github.com/WenyuChiou/zotero-skills/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/WenyuChiou/zotero-skills/compare/v0.2.0...v0.3.0
+[Unreleased]: https://github.com/WenyuChiou/zotero-skills/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/WenyuChiou/zotero-skills/compare/v0.2.0...v0.4.0
+[0.3.1]: https://github.com/WenyuChiou/zotero-skills/compare/1668aeb49c77d8e88c4132f7306b17ad69bb8206...f5772f8b62410858d41436efe11e85529b5dee8c
+[0.3.0]: https://github.com/WenyuChiou/zotero-skills/compare/v0.2.0...1668aeb49c77d8e88c4132f7306b17ad69bb8206
 [0.2.0]: https://github.com/WenyuChiou/zotero-skills/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/WenyuChiou/zotero-skills/releases/tag/v0.1.0
