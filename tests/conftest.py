@@ -95,6 +95,7 @@ class FakeZotero:
         self._items = []           # what .items()/.top() return
         self._raise_on = {}        # method_name -> exception to raise
         self._items_by_key = {}    # key -> full item dict, consulted by .item()
+        self._collections_by_key = {}  # key -> full collection dict, consulted by .collection()
         self._children_by_key = {}  # parent key -> list of child item dicts
         self._attachment_failure = []  # list to return as attachment_simple's "failure"
         self._attachment_unchanged = False  # True: upload_attachments reports "unchanged" not "success"
@@ -190,6 +191,8 @@ class FakeZotero:
 
     def collection(self, key, *a, **k):
         self._record("collection", key, *a, **k)
+        if key in self._collections_by_key:
+            return self._collections_by_key[key]
         return {"key": key, "version": 1, "data": {"key": key, "name": "C"}}
 
     def collections(self, *a, **k):
@@ -208,6 +211,10 @@ class FakeZotero:
 
     def update_item(self, data, *a, **k):
         self._record("update_item", data, *a, **k)
+        return True
+
+    def update_collection(self, collection, *a, **k):
+        self._record("update_collection", collection, *a, **k)
         return True
 
     def delete_item(self, item, *a, **k):

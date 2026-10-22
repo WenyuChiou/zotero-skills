@@ -67,7 +67,7 @@ zot.create_items([note])
 
 ## Collection-membership operations
 
-`create-operations.md` covers assigning a collection at creation time and `update-operations.md` covers the simple `.append()` move. Less common patterns:
+`create-operations.md` covers assigning a collection at creation time. For normal membership changes, use the shared client's `add_to_collection()`, `remove_from_collection()`, and `move_to_collection(..., from_collection_key=...)` helpers; they preserve unrelated memberships. The two-argument `move_to_collection(item, target)` form keeps its historical add-only behavior. The lower-level pyzotero patterns are:
 
 ```python
 # List all collections (with parent info)
@@ -80,10 +80,19 @@ for c in cols:
 ```python
 # Remove an item from a collection (preserves all other collection memberships)
 item = zot.item("ITEM_KEY")
-cols = item["data"].get("collections", [])
-cols.remove("COL_KEY_TO_REMOVE")
-item["data"]["collections"] = cols
+item["data"]["collections"] = [
+    key for key in item["data"].get("collections", [])
+    if key != "COL_KEY_TO_REMOVE"
+]
 zot.update_item(item)
+```
+
+Rename or update collection metadata with the shared client, which reads the
+current Web API version before sending the update:
+
+```python
+dual.rename_collection("COLLECTION_KEY", "New name")
+dual.update_collection("COLLECTION_KEY", {"parentCollection": "PARENT_KEY"})
 ```
 
 ```python

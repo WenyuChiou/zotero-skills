@@ -73,4 +73,8 @@ dual.create_note("ITEM_KEY", "Section", "Notes...")  # always web API
 | `ZoteroDualClient.attach_pdf(parent_key, path, filename=None)` | Attach a PDF via a short, safe, `zot_`-prefixed temp filename; raises the failed-upload detail instead of failing silently (see `create-operations.md`) |
 | `ZoteroDualClient.restore_item(key)` | Reverse `trash_item()`: PATCH `deleted=0` |
 | `ZoteroDualClient.merge_duplicates(keep_key, dup_key, require_same_doi=True)` | Merge a duplicate into the keeper: move children, union collections/tags/relations, add a `dc:replaces` relation, then trash the duplicate (see `merge-duplicates.md`) |
+| `ZoteroDualClient.add_to_collection(item_key, collection_key)` | Add one membership without removing existing memberships |
+| `ZoteroDualClient.remove_from_collection(item_key, collection_key)` | Remove only the named membership and preserve others |
+| `ZoteroDualClient.move_to_collection(item_key, collection_key, from_collection_key=...)` | Remove the named source membership and add the target; omitting `from_collection_key` retains the older add-only behavior |
+| `ZoteroDualClient.update_collection(collection_key, updates)` / `rename_collection(collection_key, new_name)` | Update collection `name` or `parentCollection` metadata using the current Web API version |
 | `safe_api_call(func)` | Wrapper with automatic rate-limit backoff |

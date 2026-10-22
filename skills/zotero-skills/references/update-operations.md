@@ -1,6 +1,7 @@
 # UPDATE Operations (Web API — Requires API Key)
 
-Updates use PATCH with optimistic locking (version-based).
+Item updates use PATCH; collection metadata updates use PUT. Both use
+optimistic locking (version-based).
 
 ```python
 # Update metadata
@@ -18,10 +19,20 @@ zot.update_item(item["data"])
 item["data"]["tags"] = [t for t in item["data"]["tags"] if t["tag"] != "old-tag"]
 zot.update_item(item["data"])
 
-# Move item to collection
-item = zot.item("ITEM_KEY")
-item["data"]["collections"].append("TARGET_COLLECTION_KEY")
-zot.update_item(item["data"])
+# Add item to a collection (preserves all existing memberships)
+dual.add_to_collection("ITEM_KEY", "TARGET_COLLECTION_KEY")
+
+# Remove only one membership (preserves all others)
+dual.remove_from_collection("ITEM_KEY", "SOURCE_COLLECTION_KEY")
+
+# Move from one named collection to another while preserving unrelated memberships
+dual.move_to_collection(
+    "ITEM_KEY", "TARGET_COLLECTION_KEY",
+    from_collection_key="SOURCE_COLLECTION_KEY",
+)
+
+# Rename a collection; update_collection also accepts parentCollection
+dual.rename_collection("COLLECTION_KEY", "New name")
 
 # Update note content
 note = zot.item("NOTE_KEY")

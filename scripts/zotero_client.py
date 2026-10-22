@@ -756,8 +756,70 @@ class ZoteroDualClient:
             item["data"]["collections"].append(collection_key)
         return self.web.update_item(item["data"])
 
-    # Back-compat alias; note the true semantics are "add" not "move".
-    move_to_collection = add_to_collection
+    def remove_from_collection(self, item_key, collection_key):
+        """Remove one collection membership while preserving every other one."""
+        self._require_web()
+        item = self._web_item(item_key)
+        item["data"]["collections"] = [
+            key for key in item["data"].get("collections", [])
+            if key != collection_key
+        ]
+        return self.web.update_item(item["data"])
+
+    def move_to_collection(
+        self, item_key, collection_key, *, from_collection_key=None
+    ):
+        """Add an item to a collection, or move it from one named collection.
+
+        With only ``collection_key`` this preserves the historical add-only
+        behavior. Set ``from_collection_key`` to remove that one old membership
+        and add the target, preserving all other collection memberships.
+        """
+        if from_collection_key is None:
+            return self.add_to_collection(item_key, collection_key)
+        self._require_web()
+        item = self._web_item(item_key)
+        collections = item["data"].setdefault("collections", [])
+        if from_collection_key != collection_key:
+            item["data"]["collections"] = [
+                key for key in collections if key != from_collection_key
+            ]
+            if collection_key not in item["data"]["collections"]:
+                item["data"]["collections"].append(collection_key)
+        return self.web.update_item(item["data"])
+
+    def update_collection(self, collection_key, updates: dict):
+        """Update a collection's supported metadata through the Web API.
+
+        The API currently accepts ``name`` and ``parentCollection`` here. The
+        collection is read first so its authoritative version is preserved for
+        pyzotero's optimistic-locking update.
+        """
+        self._require_web()
+        if not isinstance(updates, dict) or not updates:
+            raise ValueError("updates must be a non-empty dict")
+        allowed = {"name", "parentCollection"}
+        unknown = set(updates) - allowed
+        if unknown:
+            raise ValueError(
+                "unsupported collection field(s): " + ", ".join(sorted(unknown))
+            )
+        if "name" in updates and (
+            not isinstance(updates["name"], str) or not updates["name"].strip()
+        ):
+            raise ValueError("collection name must be a non-empty string")
+        if "parentCollection" in updates:
+            parent = updates["parentCollection"]
+            if parent is not False and (not isinstance(parent, str) or not parent):
+                raise ValueError("parentCollection must be False or a non-empty key")
+
+        collection = self.web.collection(collection_key)
+        collection["data"].update(updates)
+        return self.web.update_collection(collection)
+
+    def rename_collection(self, collection_key, new_name):
+        """Rename one collection, preserving its other metadata."""
+        return self.update_collection(collection_key, {"name": new_name})
 
     # --- TRASH (recoverable — preferred default, ZOT-DEL-003) ---
     def _patch_deleted_flag(self, key, flag: int) -> bool:
