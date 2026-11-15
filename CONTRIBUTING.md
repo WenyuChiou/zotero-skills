@@ -43,6 +43,9 @@ pip install pre-commit && pre-commit install
   over `delete_item` (permanent). Writes surface the `failed` bucket, not swallow it.
 - **`skills/zotero-skills/SKILL.md`'s "Safety rules" section is load-bearing** —
   it is the agent's operating contract. Changes there need extra care and review.
+- **Bug fixes fail first.** A fix's test must fail without the fix and pass with it:
+  `python scripts/fail_first.py -- python -m pytest -q '{tests}'`. Full working rules:
+  [docs/RULES.md](docs/RULES.md).
 - **Docs must match the code.** Both READMEs (EN + 繁中) stay mirrored;
   `tests/test_docs_consistency.py` enforces some of this.
 
